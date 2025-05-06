@@ -36,6 +36,7 @@ struct Stats {
     int64_t sweep = 0;
     int64_t ternary = 0;
     int64_t vivify = 0;
+    int64_t ere = 0;
   } ticks;
 
   struct {
@@ -310,6 +311,12 @@ struct Stats {
   int64_t restored = 0;      // number of restored clauses
   int64_t reactivated = 0;   // number of reactivated clauses
   int64_t restoredlits = 0;  // number of restored literals
+
+  int64_t erephases = 0;    // number of scheduled ere phases
+  int64_t ereres = 0;       // number of resolved clauses in ere
+  int64_t ereredorig = 0;   // number of eliminated original clauses by ere
+  int64_t ereredlearnt = 0; // number of eliminated learnt clauses by ere
+  int64_t eretriedequ = 0;  // number of times looked for equal clauses
 
   int64_t preprocessings = 0;
 

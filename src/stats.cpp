@@ -57,7 +57,7 @@ void Stats::print (Internal *internal) {
   int64_t searchticks = stats.ticks.search[0] + stats.ticks.search[1];
   int64_t inprobeticks = stats.ticks.vivify + stats.ticks.probe +
                          stats.ticks.factor + stats.ticks.ternary +
-                         stats.ticks.sweep;
+                         stats.ticks.sweep + stats.ticks.ere;
   int64_t totalticks = searchticks + inprobeticks;
 
   size_t extendbytes = internal->external->extension.size ();
@@ -198,6 +198,25 @@ void Stats::print (Internal *internal) {
     PRT ("  def units:     %15" PRId64 "   %10.2f %%  per checked",
          stats.definition_units,
          percent (stats.definition_units, stats.definitions_checked));
+  }
+  // ERE stats
+  if (all || stats.ereredorig + stats.ereredlearnt) {
+    PRT ("ereliminated:    %15" PRId64 "   %10.2f %%  of resolvents",
+         stats.ereredorig + stats.ereredlearnt,
+         percent (stats.ereredorig + stats.ereredlearnt, stats.ereres));
+    PRT ("  erephases:     %15" PRId64 "   %10.2f     interval",
+         stats.erephases, relative (stats.conflicts , stats.erephases));
+    PRT ("  tried:         %15" PRId64 "   %10.2f %%  of resolutions",
+         stats.eretriedequ, percent (stats.eretriedequ , stats.ereres));
+    PRT ("  original:      %15" PRId64 "   %10.2f %%  of redundancies",
+         stats.ereredorig, percent (stats.ereredorig ,
+         stats.ereredorig + stats.ereredlearnt));
+    PRT ("  learnt:        %15" PRId64 "   %10.2f %%  of redundancies",
+         stats.ereredlearnt, percent (stats.ereredlearnt ,
+         stats.ereredorig + stats.ereredlearnt));
+    PRT ("  resolutions:   %15" PRId64 "   %10.2f    per redundancy",
+         stats.ereres, relative (stats.ereres,
+         stats.ereredorig + stats.ereredlearnt));
   }
   if (all || stats.ext_prop.ext_cb) {
     PRT ("ext.prop. calls: %15" PRId64 "   %10.2f %%  of queries",
@@ -616,6 +635,8 @@ void Stats::print (Internal *internal) {
        stats.ticks.ternary, percent (stats.ticks.ternary, searchticks));
   PRT ("   vivifyticks:  %15" PRId64 "   %10.2f %%  searchticks",
        stats.ticks.vivify, percent (stats.ticks.vivify, searchticks));
+  PRT ("   ereticks:     %15" PRId64 "   %10.2f %%  searchticks",
+       stats.ticks.ere, percent (stats.ticks.ere, searchticks));
   if (all) {
     PRT ("tier recomputed: %15" PRId64 "   %10.2f    interval",
          stats.tierecomputed,
