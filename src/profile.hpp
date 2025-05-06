@@ -67,6 +67,8 @@ struct Internal;
   PROFILE (elim, 2) \
   PROFILE (factor, 2) \
   PROFILE (fastelim, 2) \
+  PROFILE (ere, 2) \
+  PROFILE (ereres, 2) \
   PROFILE (extend, 3) \
   PROFILE (extract, 3) \
   PROFILE (extractands, 4) \
