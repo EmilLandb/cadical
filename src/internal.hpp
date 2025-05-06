@@ -153,6 +153,7 @@ struct Internal {
     TRANSRED = (1 << 15),
     VIVIFY = (1 << 16),
     WALK = (1 << 17),
+    ERE = (1 << 18)
   };
 
   bool in_mode (Mode m) const { return (mode & m) != 0; }
@@ -990,6 +991,10 @@ struct Internal {
   // Transitive reduction of binary implication graph in 'transred.cpp'
   //
   void transred ();
+
+  // Eager redundancy elimination (ERE)
+  int ere_resolve_clauses (Clause *c, int pivot, Clause *d);
+  void eager_redundancy_elimination ();
 
   // We monitor the maximum size and glue of clauses during 'reduce' and
   // thus can predict if a redundant extended clause is likely to be kept in
