@@ -140,6 +140,8 @@ void Internal::eager_redundancy_elimination () {
             continue;
           if (e->size != res_size) // e cannot be equal
             continue;
+          if (stats.erephases > 1 && !e->redundant) // TODO: If erephases > 1 we cannot find redundant original clauses (?)
+            continue;
           if (res_learned && !e->redundant) // e cannot be removed
             continue;
           bool redundant = true; // e may be redundant
@@ -156,7 +158,7 @@ void Internal::eager_redundancy_elimination () {
             LOG (c, "by resolution of");
             LOG (d, "and");
             LOG ("on %d", var);
-            if (res_learned)
+            if (e->redundant)
               stats.ereredlearnt++;
             else
               stats.ereredorig++;
