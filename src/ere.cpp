@@ -1,5 +1,6 @@
 #include "internal.hpp"
-
+// marked_subsume, ticks, option nur auf irredundante clauses resolvieren,
+// schedule merke letztes literal, seq frost test how often the hash helps
 namespace CaDiCaL {
 
 // Resolution of two clauses, assuming clause c cointans pivot,
@@ -7,7 +8,7 @@ namespace CaDiCaL {
 // Returns the size of the resolvent if the resolvent is non-tautological,
 // and is not larger than eremaxresolvent
 // Returns 0 if the resolvent is tautological or larger than ereclslim
-int Internal::ere_resolve_clauses (Clause *c, int pivot, Clause *d) {
+int Internal::ere_resolve_clauses (Clause *c, int pivot, Clause *d, int64_t &ticks) {
   START (ereres); // run-time profiling
   if (c->size > d->size) { // make sure d is not the smaller clause
     pivot = -pivot;
@@ -20,6 +21,8 @@ int Internal::ere_resolve_clauses (Clause *c, int pivot, Clause *d) {
   bool invalid = false;
   int64_t size = 0; // length of the computed resolvent
 
+  ticks++; // REVIEW: Tick counting
+
   // add non-pivot literals of c to the resolvent and mark them as added
   for (const auto &lit : *c) {
     if (lit == pivot)
@@ -28,12 +31,14 @@ int Internal::ere_resolve_clauses (Clause *c, int pivot, Clause *d) {
     mark (lit), clause.push_back (lit), size++;
   }
 
+  ticks++; // REVIEW: Tick counting
+
   // repeat for d, only add literals that are not marked
   for (const auto &lit : *d) {
     if (lit == -pivot)
       continue;
     assert (lit != pivot); // d shouldn't be tautological
-    signed char tmp = marked (lit);
+    const signed char tmp = marked (lit);
     if (tmp < 0) { // --> literal marked in opposite polarity
       invalid = true; // resolvent would be tautological
       break;
@@ -41,10 +46,10 @@ int Internal::ere_resolve_clauses (Clause *c, int pivot, Clause *d) {
     if (!tmp) // --> literal wasn't already added to resolvent
       clause.push_back (lit), size++;
   }
+  unmark (c);
 
   if (size > static_cast<int64_t> (opts.ereclslim))
     invalid = true; // resolvent too long
-  unmark (c);
 
   if (invalid) {
     STOP (ereres);
@@ -70,46 +75,61 @@ void Internal::eager_redundancy_elimination () {
 
   assert (opts.ere);
 
-  START_SIMPLIFIER (ere, ERE); // TODO: is this set up correctly?
+  START_SIMPLIFIER (ere, ERE);
   // TODO: some logic for when to run ERE (?)
 
   stats.erephases++;
   PHASE ("ere-phase", stats.erephases, "starting eager redundancy elimination");
 
+  // for counting up ticks
+  int64_t &ticks = stats.ticks.ere;
+
   // set up occurrence lists
   init_occs ();
   for (const auto &c: clauses) {
+    if (!likely_to_be_kept_clause (c))
+      continue;
     if (!c->garbage)
       for (const auto &lit : *c)
         occs (lit).push_back (c);
   }
 
   // eagerly compute resolvents
-  const uint64_t ereocclim = opts.ereocclim;
+  const uint64_t occlim = opts.ereocclim;
   const int clslim = opts.ereclslim;
+  const int old = stats.ereredorig + stats.ereredlearnt;
 
   for (int var = 1; var <= max_var; var++) {
     const uint64_t occsp = occs (var).size(); // number of positive occs
     const uint64_t occsn = occs (-var).size(); // number of negative occs
-    if (occsp > ereocclim || occsn > ereocclim) {
+    if (occsp > occlim || occsn > occlim) {
        VERBOSE (3, "Occurrence lists for var %d have sizes %zu and %zu and will be skipped.",
          var, occsp, occsn);
        continue;
     }
 
     int svar = occsp < occsn ? var : -var; // determine shorter list
+
+    ticks += 1 + cache_lines (occs (svar).size(), sizeof (Clause *)); // REVIEW: Tick counting
+
     for (const auto &c : occs (svar)) {
       if (c->garbage) // skip clauses that are up for deletion
         continue;
       if (c->size + 2 > clslim) // |c \ {svar}| > clslim
         continue;
+
+      ticks++; // REVIEW: Tick counting
+      ticks += 1 + cache_lines (occs (-svar).size(), sizeof (Clause *)); // REVIEW: Tick counting
+
       for (const auto &d : occs (-svar)) {
         if (d->garbage)
           continue;
         if (d->size + 2 > clslim)
           continue;
+
+        ticks++; // REVIEW: Tick counting
         // c and d both qualify for resolution
-        const int res_size = ere_resolve_clauses (c, svar, d);
+        const int res_size = ere_resolve_clauses (c, svar, d, ticks);
         if (!res_size) { // tautological, empty or too large
           clause.clear();
           continue;
@@ -122,6 +142,7 @@ void Internal::eager_redundancy_elimination () {
         // Find the shortest occurrence list among the resolvents literals.
         // Also mark the literals for an easier redundancy check.
         stats.eretriedequ++;
+        ticks++; // REVIEW: Tick counting
         size_t min_len = occs (clause[0]).size ();
         int min_lit = clause[0];
         for (const auto &lit : clause) {
@@ -134,17 +155,19 @@ void Internal::eager_redundancy_elimination () {
         }
         const Occs& shortest = occs (min_lit);
 
+        ticks += 1 + cache_lines (shortest.size(), sizeof (Clause *)); // REVIEW: Tick counting
+
         // now look for redundant clauses in shortest
         for (auto &e : shortest) {
           if (e->garbage) // e is already up for deletion
             continue;
           if (e->size != res_size) // e cannot be equal
             continue;
-          if (stats.erephases > 1 && !e->redundant) // TODO: If erephases > 1 we cannot find redundant original clauses (?)
-            continue;
           if (res_learned && !e->redundant) // e cannot be removed
             continue;
           bool redundant = true; // e may be redundant
+
+          ticks++; // REVIEW: Tick counting
 
           // check whether e is equal to the resolvent
           for (const auto &lit : *e) {
@@ -183,6 +206,7 @@ void Internal::eager_redundancy_elimination () {
         stats.ereredorig + stats.ereredlearnt, stats.ereres);
 
   STOP_SIMPLIFIER (ere, ERE); // TODO: Is this set up correctly?
+  report ('E', old == stats.ereredorig + stats.ereredlearnt);
   return;
 }
 } // namespace CaDiCaL

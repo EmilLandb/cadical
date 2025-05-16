@@ -993,7 +993,7 @@ struct Internal {
   void transred ();
 
   // Eager redundancy elimination (ERE)
-  int ere_resolve_clauses (Clause *c, int pivot, Clause *d);
+  int ere_resolve_clauses (Clause *c, int pivot, Clause *d, int64_t &ticks);
   void eager_redundancy_elimination ();
 
   // We monitor the maximum size and glue of clauses during 'reduce' and
