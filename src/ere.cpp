@@ -1,6 +1,4 @@
 #include "internal.hpp"
-// marked_subsume, ticks, option nur auf irredundante clauses resolvieren,
-// schedule merke letztes literal, seq frost test how often the hash helps
 namespace CaDiCaL {
 
 // Resolution of two clauses, assuming clause c cointans pivot,
@@ -21,8 +19,6 @@ int Internal::ere_resolve_clauses (Clause *c, int pivot, Clause *d, int64_t &tic
   bool invalid = false;
   int64_t size = 0; // length of the computed resolvent
 
-  ticks++; // REVIEW: Tick counting
-
   // add non-pivot literals of c to the resolvent and mark them as added
   for (const auto &lit : *c) {
     if (lit == pivot)
@@ -30,8 +26,6 @@ int Internal::ere_resolve_clauses (Clause *c, int pivot, Clause *d, int64_t &tic
     assert (lit != -pivot); // c shouldn't be tautological
     mark (lit), clause.push_back (lit), size++;
   }
-
-  ticks++; // REVIEW: Tick counting
 
   // repeat for d, only add literals that are not marked
   for (const auto &lit : *d) {
@@ -87,7 +81,7 @@ void Internal::eager_redundancy_elimination () {
   // set up occurrence lists
   init_occs ();
   for (const auto &c: clauses) {
-    if (!likely_to_be_kept_clause (c))
+    if (!likely_to_be_kept_clause (c)) // TODO: review this
       continue;
     if (!c->garbage)
       for (const auto &lit : *c)
@@ -110,24 +104,24 @@ void Internal::eager_redundancy_elimination () {
 
     int svar = occsp < occsn ? var : -var; // determine shorter list
 
-    ticks += 1 + cache_lines (occs (svar).size(), sizeof (Clause *)); // REVIEW: Tick counting
+    ticks += 1 + cache_lines (occs (svar).size(), sizeof (Clause *)); // REVIEW: For occs (svar)
 
     for (const auto &c : occs (svar)) {
+      ticks++; // REVIEW: Deref clause c data
       if (c->garbage) // skip clauses that are up for deletion
         continue;
       if (c->size + 2 > clslim) // |c \ {svar}| > clslim
         continue;
 
-      ticks++; // REVIEW: Tick counting
-      ticks += 1 + cache_lines (occs (-svar).size(), sizeof (Clause *)); // REVIEW: Tick counting
+      ticks += 1 + cache_lines (occs (-svar).size(), sizeof (Clause *)); // REVIEW: For occs (-svar)
 
       for (const auto &d : occs (-svar)) {
+        ticks++; // REVIEW: Deref clause d data
         if (d->garbage)
           continue;
         if (d->size + 2 > clslim)
           continue;
 
-        ticks++; // REVIEW: Tick counting
         // c and d both qualify for resolution
         const int res_size = ere_resolve_clauses (c, svar, d, ticks);
         if (!res_size) { // tautological, empty or too large
@@ -142,7 +136,7 @@ void Internal::eager_redundancy_elimination () {
         // Find the shortest occurrence list among the resolvents literals.
         // Also mark the literals for an easier redundancy check.
         stats.eretriedequ++;
-        ticks++; // REVIEW: Tick counting
+        // ticks++; // REVIEW: vector<int> clause probably still hot from resolution?
         size_t min_len = occs (clause[0]).size ();
         int min_lit = clause[0];
         for (const auto &lit : clause) {
@@ -155,10 +149,11 @@ void Internal::eager_redundancy_elimination () {
         }
         const Occs& shortest = occs (min_lit);
 
-        ticks += 1 + cache_lines (shortest.size(), sizeof (Clause *)); // REVIEW: Tick counting
+        ticks += 1 + cache_lines (shortest.size(), sizeof (Clause *)); // REVIEW: For occs (min_lit)
 
         // now look for redundant clauses in shortest
         for (auto &e : shortest) {
+          ticks++; // REVIEW: Deref clause e data
           if (e->garbage) // e is already up for deletion
             continue;
           if (e->size != res_size) // e cannot be equal
@@ -166,8 +161,6 @@ void Internal::eager_redundancy_elimination () {
           if (res_learned && !e->redundant) // e cannot be removed
             continue;
           bool redundant = true; // e may be redundant
-
-          ticks++; // REVIEW: Tick counting
 
           // check whether e is equal to the resolvent
           for (const auto &lit : *e) {
@@ -205,7 +198,7 @@ void Internal::eager_redundancy_elimination () {
         "eliminated %" PRId64 " clauses in %" PRId64 " resolutions",
         stats.ereredorig + stats.ereredlearnt, stats.ereres);
 
-  STOP_SIMPLIFIER (ere, ERE); // TODO: Is this set up correctly?
+  STOP_SIMPLIFIER (ere, ERE);
   report ('E', old == stats.ereredorig + stats.ereredlearnt);
   return;
 }
