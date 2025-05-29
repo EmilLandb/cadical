@@ -87,7 +87,7 @@ struct Last {
   } transred;
   struct {
     int64_t ticks;
-  } sweep, vivify, probe;
+  } sweep, vivify, probe, ere; // REVIEW: Added ere for SET_EFFORT_LIMIT
   struct {
     int64_t fixed, subsumephases, marked;
   } elim;

@@ -6,7 +6,7 @@ namespace CaDiCaL {
 // Returns the size of the resolvent if the resolvent is non-tautological,
 // and is not larger than eremaxresolvent
 // Returns 0 if the resolvent is tautological or larger than ereclslim
-int Internal::ere_resolve_clauses (Clause *c, int pivot, Clause *d, int64_t &ticks) {
+int Internal::ere_resolve_clauses (Clause *c, int pivot, Clause *d) {
   START (ereres); // run-time profiling
   if (c->size > d->size) { // make sure d is not the smaller clause
     pivot = -pivot;
@@ -59,18 +59,19 @@ int Internal::ere_resolve_clauses (Clause *c, int pivot, Clause *d, int64_t &tic
 }
 
 // Eagerly compute all resolvents and check for redundant clauses
-void Internal::eager_redundancy_elimination () {
+bool Internal::eager_redundancy_elimination () {
   if (!opts.ere)
-    return;
+    return true;
   if (unsat)
-    return;
+    return true;
   if (terminated_asynchronously ())
-    return;
+    return true;
 
   assert (opts.ere);
 
   START_SIMPLIFIER (ere, ERE);
-  // TODO: some logic for when to run ERE (?)
+
+  SET_EFFORT_LIMIT (tick_limit, ere, true);
 
   stats.erephases++;
   PHASE ("ere-phase", stats.erephases, "starting eager redundancy elimination");
@@ -81,7 +82,9 @@ void Internal::eager_redundancy_elimination () {
   // set up occurrence lists
   init_occs ();
   for (const auto &c: clauses) {
-    if (!likely_to_be_kept_clause (c)) // TODO: review this
+	if (opts.ereirredonly && opts.ereirredonlyrem && c->redundant)
+	  continue;
+    if (!likely_to_be_kept_clause (c)) // not (irredundant or low glue)
       continue;
     if (!c->garbage)
       for (const auto &lit : *c)
@@ -93,12 +96,26 @@ void Internal::eager_redundancy_elimination () {
   const int clslim = opts.ereclslim;
   const int old = stats.ereredorig + stats.ereredlearnt;
 
-  for (int var = 1; var <= max_var; var++) {
+  if (ere_next_var > max_var) // since elim removes variables
+    ere_next_var = 1;
+  const int start_var = ere_next_var;
+  int var = ere_next_var;
+
+  while (stats.ticks.ere < tick_limit) {
+    ere_next_var = var; // store next var if effort limit is reached
+
     const uint64_t occsp = occs (var).size(); // number of positive occs
     const uint64_t occsn = occs (-var).size(); // number of negative occs
     if (occsp > occlim || occsn > occlim) {
-       VERBOSE (3, "Occurrence lists for var %d have sizes %zu and %zu and will be skipped.",
+       VERBOSE (3, "Occurrence lists for var %d have sizes %llu and %llu and will be skipped.",
          var, occsp, occsn);
+       // Manual wrap-around for skipped vars
+       if (var == max_var)
+         var = 1;
+       else
+         var++;
+       if (var == start_var)
+         break;
        continue;
     }
 
@@ -110,6 +127,8 @@ void Internal::eager_redundancy_elimination () {
       ticks++; // REVIEW: Deref clause c data
       if (c->garbage) // skip clauses that are up for deletion
         continue;
+      if (opts.ereirredonly && c->redundant)
+        continue;
       if (c->size + 2 > clslim) // |c \ {svar}| > clslim
         continue;
 
@@ -119,11 +138,13 @@ void Internal::eager_redundancy_elimination () {
         ticks++; // REVIEW: Deref clause d data
         if (d->garbage)
           continue;
+        if (opts.ereirredonly && d->redundant)
+          continue;
         if (d->size + 2 > clslim)
           continue;
 
         // c and d both qualify for resolution
-        const int res_size = ere_resolve_clauses (c, svar, d, ticks);
+        const int res_size = ere_resolve_clauses (c, svar, d);
         if (!res_size) { // tautological, empty or too large
           clause.clear();
           continue;
@@ -158,6 +179,10 @@ void Internal::eager_redundancy_elimination () {
             continue;
           if (e->size != res_size) // e cannot be equal
             continue;
+		  if (opts.ereirredonlyrem && e->redundant) // REVIEW: Don't remove learnt clauses
+			continue;
+		  else if (opts.ereredonlyrem && !e->redundant) // REVIEW: Only remove learnt clauses
+			continue;
           if (res_learned && !e->redundant) // e cannot be removed
             continue;
           bool redundant = true; // e may be redundant
@@ -189,17 +214,25 @@ void Internal::eager_redundancy_elimination () {
         clause.clear();
       }
     }
+    // Increment var with wrap-around
+    if (var == max_var)
+      var = 1;
+    else
+      var++;
+    // Stop if a full cycle is completed
+    if (var == start_var)
+      break;
   }
 
   assert (clause.empty());
   reset_occs();
-
+  VERBOSE (3, "Went from var %d to var %d", start_var, ere_next_var);
   PHASE("ere-phase", stats.erephases,
         "eliminated %" PRId64 " clauses in %" PRId64 " resolutions",
         stats.ereredorig + stats.ereredlearnt, stats.ereres);
 
   STOP_SIMPLIFIER (ere, ERE);
   report ('E', old == stats.ereredorig + stats.ereredlearnt);
-  return;
+  return true;
 }
 } // namespace CaDiCaL

@@ -993,8 +993,9 @@ struct Internal {
   void transred ();
 
   // Eager redundancy elimination (ERE)
-  int ere_resolve_clauses (Clause *c, int pivot, Clause *d, int64_t &ticks);
-  void eager_redundancy_elimination ();
+  int ere_next_var = 1; // next variable in schedule
+  int ere_resolve_clauses (Clause *c, int pivot, Clause *d);
+  bool eager_redundancy_elimination ();
 
   // We monitor the maximum size and glue of clauses during 'reduce' and
   // thus can predict if a redundant extended clause is likely to be kept in

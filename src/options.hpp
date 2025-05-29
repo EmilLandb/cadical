@@ -106,9 +106,14 @@ OPTION( emalevel,        1e5,  1,2e9,0,0,1, "window back-track level") \
 OPTION( emasize,         1e5,  1,2e9,0,0,1, "window learned clause size") \
 OPTION( ematrailfast,    1e2,  1,2e9,0,0,1, "window fast trail") \
 OPTION( ematrailslow,    1e5,  1,2e9,0,0,1, "window slow trail") \
-OPTION( ere,               1,  1,  1,0,1,0, "ERE") \
+OPTION( ere,               1,  0,  1,0,1,0, "ERE") \
 OPTION( ereclslim,       1e2,  0,2e9,0,0,1, "ERE resolvent size limit") \
+OPTION( ereeffort,         5,  0,1e6,0,0,1, "relative effort per mille") \
+OPTION( ereirredonly,      1,  0,  1,0,0,1, "only resolve irredundant clauses") \
+OPTION( ereirredonlyrem,   0,  0,  1,0,0,1, "only remove irredundant clauses") \
 OPTION( ereocclim,       1e3,  0,2e9,0,0,1, "ERE occurrence list limit") \
+OPTION( ereredonlyrem,     0,  0,  1,0,0,1, "only remove redundant clauses") \
+OPTION( erethresh,        10,  0,100,1,0,1, "delay if ticks smaller thresh*clauses") \
 OPTION( exteagerreasons,   1,  0,  1,0,0,1, "eagerly ask for all reasons (0: only when needed)") \
 OPTION( exteagerrecalc,    1,  0,  1,0,0,1, "after eagerly asking for reasons recalculate all levels (0: trust the external tool)") \
 OPTION( externallrat,      0,  0,  1,0,0,1, "external lrat") \

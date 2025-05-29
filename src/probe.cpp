@@ -947,7 +947,7 @@ void CaDiCaL::Internal::inprobe (bool update_limits) {
     (void) vivify (); // resets watches
     transred ();      // builds big.
     factor ();   // resets watches, partial occurrence list
-    eager_redundancy_elimination ();// call ERE
+    eager_redundancy_elimination (); // call ERE
   }
 
   if (external_prop) {
