@@ -994,7 +994,7 @@ struct Internal {
 
   // Eager redundancy elimination (ERE)
   int ere_next_var = 1; // next variable in schedule
-  int ere_resolve_clauses (Clause *c, int pivot, Clause *d);
+  int ere_resolve_clauses (Clause *c, int pivot, Clause *d, int &sharedlit);
   bool eager_redundancy_elimination ();
 
   // We monitor the maximum size and glue of clauses during 'reduce' and
