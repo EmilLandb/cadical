@@ -214,9 +214,23 @@ void Stats::print (Internal *internal) {
     PRT ("  learnt:        %15" PRId64 "   %10.2f %%  of redundancies",
          stats.ereredlearnt, percent (stats.ereredlearnt ,
          stats.ereredorig + stats.ereredlearnt));
+    PRT ("  suborig:       %15" PRId64 "   %10.2f %%  of redundancies",
+         stats.eresuborig, percent (stats.eresuborig ,
+         stats.ereredorig + stats.ereredlearnt +
+         stats.eresuborig + stats.eresublearnt));
+    PRT ("  sublearnt:     %15" PRId64 "   %10.2f %%  of redundancies",
+         stats.eresublearnt, percent (stats.eresublearnt ,
+         stats.ereredorig + stats.ereredlearnt +
+         stats.eresuborig + stats.eresublearnt));
     PRT ("  resolutions:   %15" PRId64 "   %10.2f    per redundancy",
          stats.ereres, relative (stats.ereres,
          stats.ereredorig + stats.ereredlearnt));
+    PRT ("  antsharedlit:  %15" PRId64 "   %10.2f %%  of redundant learnts",
+         stats.eresharedlit, percent (stats.eresharedlit,
+         stats.ereredlearnt));
+    PRT ("  selfsubsumed:  %15" PRId64 "   %10.2f %%  of resolutions",
+         stats.ereselfsub, percent (stats.ereselfsub,
+         stats.ereres));
   }
   if (all || stats.ext_prop.ext_cb) {
     PRT ("ext.prop. calls: %15" PRId64 "   %10.2f %%  of queries",

@@ -315,8 +315,14 @@ struct Stats {
   int64_t erephases = 0;    // number of scheduled ere phases
   int64_t ereres = 0;       // number of resolved clauses in ere
   int64_t ereredorig = 0;   // number of eliminated original clauses by ere
+  int64_t eresuborig = 0;   // number of elim. orig. clauses by subsumption
   int64_t ereredlearnt = 0; // number of eliminated learnt clauses by ere
+  int64_t eresublearnt = 0; // number of elim. learnt clauses by subsumption
   int64_t eretriedequ = 0;  // number of times looked for equal clauses
+  int64_t ereselfsub = 0;   // number of times a clause got self subsumed
+  int64_t eresharedlit = 0; // number of times a redundant clause is removed
+                            // for which the resolved clauses shared a
+                            // literal
 
   int64_t preprocessings = 0;
 
