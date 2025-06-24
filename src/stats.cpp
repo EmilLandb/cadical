@@ -200,12 +200,16 @@ void Stats::print (Internal *internal) {
          percent (stats.definition_units, stats.definitions_checked));
   }
   // ERE stats
-  if (all || stats.ereredorig + stats.ereredlearnt) {
+  if (all || stats.ereredorig + stats.ereredlearnt + stats.eresuborig + stats.eresublearnt) {
     PRT ("ereliminated:    %15" PRId64 "   %10.2f %%  of resolvents",
-         stats.ereredorig + stats.ereredlearnt,
-         percent (stats.ereredorig + stats.ereredlearnt, stats.ereres));
-    PRT ("  erephases:     %15" PRId64 "   %10.2f     interval",
+         stats.ereredorig + stats.ereredlearnt + stats.eresuborig + stats.eresublearnt,
+         percent (stats.ereredorig + stats.ereredlearnt + stats.eresuborig + stats.eresublearnt, stats.ereres));
+    PRT ("  phases:        %15" PRId64 "   %10.2f     interval",
          stats.erephases, relative (stats.conflicts , stats.erephases));
+    PRT ("  full rots:     %15" PRId64 "   %10.2f     of phases",
+         stats.erefullrotations, relative (stats.erefullrotations , stats.erephases));
+    PRT ("  filtered:      %15" PRId64 "   %10.2f %%  of candidates",
+     stats.erefiltered, percent (stats.erefiltered , stats.eretriedequ));
     PRT ("  tried:         %15" PRId64 "   %10.2f %%  of resolutions",
          stats.eretriedequ, percent (stats.eretriedequ , stats.ereres));
     PRT ("  original:      %15" PRId64 "   %10.2f %%  of redundancies",

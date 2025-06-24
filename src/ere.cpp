@@ -1,12 +1,51 @@
 #include "internal.hpp"
 namespace CaDiCaL {
+// ---------------------------------------------------------------------------------------------------------------------
+typedef vector<uint16_t> Sigs; // Signature list
+vector<Sigs> sigtab;
+
+void Internal::ere_init_sigs_and_occs () {
+  if (sigtab.size () < 2 * vsize)
+    sigtab.resize (2 * vsize, Sigs ());
+  init_occs ();
+  LOG ("initialized signature lists and occurrence lists");
+}
+
+void Internal::ere_reset_sigs_and_occs () {
+  assert (!sigtab.empty ());
+  erase_vector (sigtab);
+  reset_occs ();
+  LOG ("reset signature lists and occurrence lists");
+}
+
+void Internal::ere_fill_sigs_and_occs () {
+  START (eresigotab);
+  for (auto &c : clauses) { // sort, compute signature, add to sigoccs
+    if (c->size == 2) // skip binary clauses
+      continue;
+    if (!likely_to_be_kept_clause (c)) // not (irredundant or low glue)
+      continue;
+    if (c->garbage)
+      continue;
+    int sig = 0;
+    for (const auto &lit : *c) { // compute signature
+      sig |= (1UL << ((lit) & 0x0000000F));
+    }
+    for (const auto &lit : *c) { // add to sigs and occs
+	  sigtab[vlit (lit)].push_back(sig); // add signature to signatures
+	  occs (lit).push_back (c); // add clause to occurrence lists
+    }
+  }
+  STOP (eresigotab);
+}
+// ---------------------------------------------------------------------------------------------------------------------
 
 // Resolution of two clauses, assuming clause c cointans pivot,
 // d contains -pivot, both non-tautological.
 // Returns the size of the resolvent if the resolvent is non-tautological,
 // and is not larger than eremaxresolvent
 // Returns 0 if the resolvent is tautological or larger than ereclslim
-int Internal::ere_resolve_clauses (Clause *c, int pivot, Clause *d, int &sharedlit) {
+int Internal::ere_resolve_clauses (Clause *c, int pivot, Clause *d, int &sharedlit, int32_t &sig) {
   START (ereres); // run-time profiling
   if (c->size > d->size) { // make sure d is not the smaller clause
     pivot = -pivot;
@@ -24,6 +63,7 @@ int Internal::ere_resolve_clauses (Clause *c, int pivot, Clause *d, int &sharedl
     if (lit == pivot)
       continue;
     assert (lit != -pivot); // c shouldn't be tautological
+	sig |= (1UL << ((lit) & 0x0000000F));
     mark (lit), clause.push_back (lit), size++;
   }
 
@@ -36,8 +76,10 @@ int Internal::ere_resolve_clauses (Clause *c, int pivot, Clause *d, int &sharedl
     if (tmp < 0) { // --> literal marked in opposite polarity
       invalid = true; // resolvent would be tautological
       break;
-    } else if (!tmp) // --> literal wasn't already added to resolvent
-      clause.push_back (lit), size++;
+    } else if (!tmp) { // --> literal wasn't already added to resolvent
+		sig |= (1UL << ((lit) & 0x0000000F));
+		clause.push_back (lit), size++;
+	}
     else { // literal occurs in both c and d
        sharedlit = lit;
     }
@@ -83,17 +125,10 @@ bool Internal::eager_redundancy_elimination () {
 
   // set up occurrence lists
   ticks += 1 + cache_lines (clauses.size (), sizeof (Clause *)); // REVIEW: Should i include building the occs?
-  init_occs ();
-  for (const auto &c: clauses) {
-	if (c->size == 2) // skip binary clauses
-	  continue;
-    if (!likely_to_be_kept_clause (c)) // not (irredundant or low glue)
-      continue;
-    if (!c->garbage)
-      ticks++;
-      for (const auto &lit : *c)
-        occs (lit).push_back (c);
-  }
+
+  clear_watches ();
+  ere_init_sigs_and_occs ();
+  ere_fill_sigs_and_occs ();
 
   // eagerly compute resolvents
   const uint64_t occlim = opts.ereocclim;
@@ -114,8 +149,10 @@ bool Internal::eager_redundancy_elimination () {
 	    var = 1;
 	  else
 	    var++;
-	  if (var == start_var)
-		break;
+	  if (var == start_var) {
+        stats.erefullrotations++;
+        break;
+      }
       continue;
 	}
 
@@ -129,8 +166,10 @@ bool Internal::eager_redundancy_elimination () {
          var = 1;
        else
          var++;
-       if (var == start_var)
-         break;
+       if (var == start_var) {
+        stats.erefullrotations++;
+        break;
+      }
        continue;
     }
 
@@ -170,8 +209,9 @@ bool Internal::eager_redundancy_elimination () {
 
         // c and d both qualify for resolution
         int sharedlit = 0; // REVIEW: for counting antecedents that share a literal
-        ticks += 10; // REVIEW: some ticks for ere_resolve_clauses ? (Takes up ~ half of ere runtime)
-        const int res_size = ere_resolve_clauses (c, svar, d, sharedlit);
+		int32_t res_sig = 0;
+        ticks += 20; // REVIEW: some ticks for ere_resolve_clauses ? (Takes up ~ half of ere runtime)
+        const int res_size = ere_resolve_clauses (c, svar, d, sharedlit, res_sig);
         if (!res_size) { // tautological, empty or too large
           clause.clear();
           continue;
@@ -183,7 +223,6 @@ bool Internal::eager_redundancy_elimination () {
 
         // Find the shortest occurrence list among the resolvents literals.
         // Also mark the literals for an easier redundancy check.
-        stats.eretriedequ++;
         size_t min_len = occs (clause[0]).size ();
         int min_lit = clause[0];
         for (const auto &lit : clause) {
@@ -195,13 +234,21 @@ bool Internal::eager_redundancy_elimination () {
           mark (lit);
         }
         const Occs& shortest = occs (min_lit);
+		const Sigs& shortest_sigs = sigtab[vlit (min_lit)];
+        ticks += 1 + cache_lines(min_len, sizeof(uint16_t)); //  accessing shortest_sigs
 
-        ticks += 1 + cache_lines (shortest.size(), sizeof (Clause *)); // REVIEW: For occs (min_lit)
         // now look for redundant clauses in shortest
-        for (auto &e : shortest) {
+        for (size_t i = 0; i < min_len; ++i) { // need index for finding the corresponding clause
           if (!(stats.ticks.ere < tick_limit))
 	        break;
+          stats.eretriedequ++;
+		  // some literal that isn't in 'e' is in resolvent => resolvent can't subset of 'e'
+		  if (res_sig & ~shortest_sigs[i]) {
+            stats.erefiltered++;
+			continue;
+		  }
           ticks++; // REVIEW: Deref clause e data
+		  auto &e = shortest[i];
           if (e->garbage) // e is already up for deletion
             continue;
           if (res_learnt && !e->redundant) // e cannot be removed
@@ -264,7 +311,7 @@ bool Internal::eager_redundancy_elimination () {
 
         // TODO: This is still buggy (and also incomplete)
         // check for self-subsumtion. At this point all literals in the resolvent are marked.
-        /*
+		/*
         if (opts.ereselfsub) {
           bool cselfsub = false;
           if (c->size > res_size) {
@@ -293,8 +340,7 @@ bool Internal::eager_redundancy_elimination () {
             }
           }
         }
-        */
-
+		*/
         // clean up
         for (const auto &lit : clause) {
           unmark (lit);
@@ -308,12 +354,17 @@ bool Internal::eager_redundancy_elimination () {
     else
       var++;
     // Stop if a full cycle is completed
-    if (var == start_var)
+    if (var == start_var) {
+      stats.erefullrotations++;
       break;
+    }
   }
 
   assert (clause.empty());
-  reset_occs();
+  ere_reset_sigs_and_occs ();
+  init_watches ();
+  connect_watches ();
+  VERBOSE (1, "ERE found %d redundancies", stats.ereredorig + stats.ereredlearnt - old); // TODO: remove after checking
   VERBOSE (3, "Went from var %d to var %d", start_var, ere_next_var);
   PHASE("ere-phase", stats.erephases,
         "eliminated %" PRId64 " clauses in %" PRId64 " resolutions",
