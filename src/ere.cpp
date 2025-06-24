@@ -1,7 +1,7 @@
 #include "internal.hpp"
 namespace CaDiCaL {
 // ---------------------------------------------------------------------------------------------------------------------
-typedef vector<uint16_t> Sigs; // Signature list
+typedef vector<uint32_t> Sigs; // Signature list
 vector<Sigs> sigtab;
 
 void Internal::ere_init_sigs_and_occs () {
@@ -27,9 +27,9 @@ void Internal::ere_fill_sigs_and_occs () {
       continue;
     if (c->garbage)
       continue;
-    int sig = 0;
+    uint32_t sig = 0;
     for (const auto &lit : *c) { // compute signature
-      sig |= (1UL << ((lit) & 0x0000000F));
+      sig |= (1UL << ((lit) & 0x0000001F));
     }
     for (const auto &lit : *c) { // add to sigs and occs
 	  sigtab[vlit (lit)].push_back(sig); // add signature to signatures
@@ -45,7 +45,7 @@ void Internal::ere_fill_sigs_and_occs () {
 // Returns the size of the resolvent if the resolvent is non-tautological,
 // and is not larger than eremaxresolvent
 // Returns 0 if the resolvent is tautological or larger than ereclslim
-int Internal::ere_resolve_clauses (Clause *c, int pivot, Clause *d, int &sharedlit, int32_t &sig) {
+int Internal::ere_resolve_clauses (Clause *c, int pivot, Clause *d, int &sharedlit, uint32_t &sig) {
   START (ereres); // run-time profiling
   if (c->size > d->size) { // make sure d is not the smaller clause
     pivot = -pivot;
@@ -63,7 +63,7 @@ int Internal::ere_resolve_clauses (Clause *c, int pivot, Clause *d, int &sharedl
     if (lit == pivot)
       continue;
     assert (lit != -pivot); // c shouldn't be tautological
-	sig |= (1UL << ((lit) & 0x0000000F));
+	sig |= (1UL << ((lit) & 0x0000001F));
     mark (lit), clause.push_back (lit), size++;
   }
 
@@ -77,7 +77,7 @@ int Internal::ere_resolve_clauses (Clause *c, int pivot, Clause *d, int &sharedl
       invalid = true; // resolvent would be tautological
       break;
     } else if (!tmp) { // --> literal wasn't already added to resolvent
-		sig |= (1UL << ((lit) & 0x0000000F));
+		sig |= (1UL << ((lit) & 0x0000001F));
 		clause.push_back (lit), size++;
 	}
     else { // literal occurs in both c and d
@@ -209,7 +209,7 @@ bool Internal::eager_redundancy_elimination () {
 
         // c and d both qualify for resolution
         int sharedlit = 0; // REVIEW: for counting antecedents that share a literal
-		int32_t res_sig = 0;
+		uint32_t res_sig = 0;
         ticks += 20; // REVIEW: some ticks for ere_resolve_clauses ? (Takes up ~ half of ere runtime)
         const int res_size = ere_resolve_clauses (c, svar, d, sharedlit, res_sig);
         if (!res_size) { // tautological, empty or too large
@@ -235,7 +235,7 @@ bool Internal::eager_redundancy_elimination () {
         }
         const Occs& shortest = occs (min_lit);
 		const Sigs& shortest_sigs = sigtab[vlit (min_lit)];
-        ticks += 1 + cache_lines(min_len, sizeof(uint16_t)); //  accessing shortest_sigs
+        ticks += 1 + cache_lines(min_len, sizeof(uint32_t)); //  accessing shortest_sigs
 
         // now look for redundant clauses in shortest
         for (size_t i = 0; i < min_len; ++i) { // need index for finding the corresponding clause
