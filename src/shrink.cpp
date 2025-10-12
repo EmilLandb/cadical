@@ -362,7 +362,7 @@ struct shrink_trail_larger {
 };
 
 // Finds the beginning of the block (rend_block, non-included) ending at
-// rend_block (included). Then tries to shrinks and minimizes literals  the
+// rend_block (included). Then tries to shrink and minimize literals in the
 // block
 std::vector<int>::reverse_iterator Internal::minimize_and_shrink_block (
     std::vector<int>::reverse_iterator &rbegin_block,
@@ -468,14 +468,18 @@ void Internal::shrink_and_minimize_clause () {
         assert (j < old_clause_lrat.size ());
         assert (mini_chain.empty ());
         if (clause[j] != old_clause_lrat[j]) {
+          allrpr_shrunken.push_back (-old_clause_lrat[j]);
+          /*
           calculate_minimize_chain (-old_clause_lrat[j], stack);
           for (auto p : mini_chain) {
             minimize_chain.push_back (p);
           }
           mini_chain.clear ();
+          */
         }
       }
       if (clause[j] == uip0) {
+        LOG ("clause[j] = %d", clause[j]);
         continue;
       }
       assert (flags (clause[i]).keep);
@@ -493,15 +497,16 @@ void Internal::shrink_and_minimize_clause () {
   stats.shrunken += total_shrunken;
   stats.minishrunken += total_minimized;
   STOP (shrink);
-
+  
+  /*
   START (minimize);
   clear_minimized_literals ();
-  for (auto p = minimize_chain.rbegin (); p != minimize_chain.rend ();
-       p++) {
+  for (auto p = minimize_chain.rbegin (); p != minimize_chain.rend (); p++) {
     lrat_chain.push_back (*p);
   }
   minimize_chain.clear ();
   STOP (minimize);
+  */
 }
 
 } // namespace CaDiCaL

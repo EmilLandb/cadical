@@ -1062,7 +1062,7 @@ void Internal::analyze () {
       conflict_size = antecedent_size - 1;
     assert (resolvent_size == open + (int) clause.size ());
 
-    if (otfs && resolved > 0 && antecedent_size > 2 &&
+    if (otfs && resolved > 0 && antecedent_size > 2 && // resolvent could subsume antecedent
         resolvent_size < antecedent_size) {
       assert (reason != conflict);
       LOG (analyzed, "found candidate for OTFS conflict");
@@ -1091,7 +1091,7 @@ void Internal::analyze () {
       }
       assert (conflict_size >= 2);
 
-      if (resolved == 1 && resolvent_size < conflict_size) {
+      if (resolved == 1 && resolvent_size < conflict_size) { // implies subsumption between antecedent
         // here both clauses are part of the CNF, so one subsumes the other
         otfs_subsume_clause (reason, conflict);
         LOG (reason, "changing conflict to");
@@ -1142,16 +1142,16 @@ void Internal::analyze () {
     uip = 0;
     while (!uip) {
       if (!i) {
-	lazy_external_propagator_out_of_order_clause (uip);
-	if (unsat)
-	  return;
-	else if (uip){
-	  open = 1;
-	  break;
-	}
-	else {
+	      lazy_external_propagator_out_of_order_clause (uip);
+	      if (unsat)
+	        return;
+	      else if (uip){
+	        open = 1;
+	        break;
+	      }
+	      else {  
           LOG (reason, "restarting the analysis on the new conflict");
-	  ++stats.conflicts;
+	        ++stats.conflicts;
           reason = conflict;
           resolvent_size = 0;
           antecedent_size = 1;
@@ -1203,15 +1203,41 @@ void Internal::analyze () {
   // can calculate it pretty easily and even better the same algorithm works
   // for both shrinking and minimization.
 
+  // ALLRPR 
+  allrpr_proof_clauses allrpr_pcs;
+  if (lrat) {
+    allrpr_pcs.internal = this;
+    allrpr_init_citten ();
+    allrpr_collect_learn_reasons (uip, allrpr_pcs);
+  }
+  
   // Minimize the 1st UIP clause as pioneered by Niklas Soerensson in
   // MiniSAT and described in our joint SAT'09 paper.
   //
   if (size > 1) {
-    if (opts.shrink)
+    if (opts.shrink) {
       shrink_and_minimize_clause ();
-    else if (opts.minimize)
-      minimize_clause ();
+      // ALLRPR collect shrink reasons
+      if (lrat) {
+        allrpr_collect_shrink_reasons (allrpr_pcs);
+        allrpr_shrunken.clear ();
+      }
 
+      START (minimize);
+      clear_minimized_literals ();
+      STOP (minimize);
+
+    }
+    else if (opts.minimize) {
+      minimize_clause ();
+      // ALLRPR collect minimize reasons
+      if (lrat)
+        allrpr_collect_minimize_reasons (allrpr_pcs);
+
+      START (minimize);
+      clear_minimized_literals ();
+      STOP (minimize);
+    }
     size = (int) clause.size ();
 
     // Update decision heuristics.
@@ -1236,11 +1262,18 @@ void Internal::analyze () {
   // (views) to be more efficient but we would have to distinguish in proof
   //
   if (lrat) {
+    // ALLRPR construct proof with kitten
+    lrat_chain.clear ();
+    allrpr_kitten_catch_rat (uip, allrpr_pcs);
+    allrpr_reset_citten ();
+    
+    /*
     LOG (unit_chain, "unit chain: ");
     for (auto id : unit_chain)
       lrat_chain.push_back (id);
+    */
     unit_chain.clear ();
-    reverse (lrat_chain.begin (), lrat_chain.end ());
+    //reverse (lrat_chain.begin (), lrat_chain.end ());
   }
 
   // Determine back-jump level, learn driving clause, backtrack and assign
@@ -1276,6 +1309,10 @@ void Internal::analyze () {
   clear_analyzed_levels ();
   clause.clear ();
   conflict = 0;
+
+  // ALLRPR delete intermediate proof steps.
+  if (lrat)
+    allrpr_delete_intermediate_lrat (allrpr_pcs);
 
   lrat_chain.clear ();
   STOP (analyze);

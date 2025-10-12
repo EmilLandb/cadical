@@ -46,6 +46,7 @@ extern "C" {
 // number of header files included here.  The other benefit of having all
 // header files here is that '.cpp' files then only need to include this.
 
+#include "allrpr.hpp"
 #include "arena.hpp"
 #include "averages.hpp"
 #include "bins.hpp"
@@ -751,6 +752,20 @@ struct Internal {
   void minimize_clause ();
   void calculate_minimize_chain (int lit, std::vector<int> &stack);
 
+  // Automated Local Linear Resolution Proof Reconstruction
+  //
+  std::vector<int> allrpr_shrunken; // literals removed in shrink
+  void allrpr_init_citten (); 
+  void allrpr_reset_citten ();
+  inline void feed_reason (allrpr_proof_clauses &pcs, Clause *reason); // book keeping and adding clause to kitten
+  inline void feed_unit_reason (int unit); // just adding unit clause to kitten
+  void allrpr_collect_learn_reasons (int &uip, allrpr_proof_clauses &pcs); // collect reasons between conflict and 1UIP clause
+  void allrpr_collect_minimize_reasons (allrpr_proof_clauses &pcs); // collect reasons between 1UIP clause and minimized clause
+  void allrpr_collect_shrink_reasons (allrpr_proof_clauses &pcs); // collect shrink reasons for literals inm allrpr_shrunken
+  void allrpr_build_lrat (allrpr_proof_clauses &pcs); // builds LRAT proof from collected kitten core
+  void allrpr_delete_intermediate_lrat (allrpr_proof_clauses &pcs); // deletes intermediate LRAT proof steps 
+  void allrpr_kitten_catch_rat (int &uip, allrpr_proof_clauses &pcs); // LRAT chain from kitten
+  
   // Learning from conflicts in 'analyze.cc'.
   //
   void learn_empty_clause ();

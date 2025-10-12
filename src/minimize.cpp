@@ -113,7 +113,6 @@ void Internal::minimize_clause () {
 
   external->check_learned_clause (); // check 1st UIP learned clause first
   minimize_sort_clause ();
-
   assert (minimized.empty ());
   assert (minimize_chain.empty ());
   const auto end = clause.end ();
@@ -121,7 +120,8 @@ void Internal::minimize_clause () {
   std::vector<int> stack;
   for (; i != end; i++) {
     if (minimize_literal (-*i)) {
-      if (lrat) {
+      /*
+      if (lrat) { 
         assert (mini_chain.empty ());
         calculate_minimize_chain (-*i, stack);
         for (auto p : mini_chain) {
@@ -129,19 +129,23 @@ void Internal::minimize_clause () {
         }
         mini_chain.clear ();
       }
+      */
       stats.minimized++;
-    } else
-      flags (*j++ = *i).keep = true;
+    } else {
+      flags (*j++ = *i).keep = true; // <-- this mutates clause...
+    }
   }
   LOG ("minimized %zd literals", (size_t) (clause.end () - j));
   if (j != end)
     clause.resize (j - clause.begin ());
+  /*
   clear_minimized_literals ();
   for (auto p = minimize_chain.rbegin (); p != minimize_chain.rend ();
        p++) {
     lrat_chain.push_back (*p);
   }
   minimize_chain.clear ();
+  */
   STOP (minimize);
 }
 
