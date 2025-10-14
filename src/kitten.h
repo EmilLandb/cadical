@@ -26,6 +26,9 @@ void kitten_shuffle_clauses (kitten *);
 void kitten_flip_phases (kitten *);
 void kitten_randomize_phases (kitten *);
 
+// kitten hack for shuffling assumptions
+void kitten_shuffle_assumptions (kitten *);
+
 void kitten_assume (kitten *, unsigned lit);
 void kitten_assume_signed (kitten *, int lit);
 

@@ -21,6 +21,8 @@
 \
 /*      NAME         DEFAULT, LO, HI,O,P,R, USAGE */ \
 \
+OPTION( allrprshufflea,    1,  1,  1,0,0,1, "shuffle assumptions in allrpr") \
+OPTION( allrprshufflec,    1,  1,  1,0,0,1, "shuffle clauses in allrpr") \
 OPTION( arena,             1,  0,  1,0,0,1, "allocate clauses in arena") \
 OPTION( arenacompact,      1,  0,  1,0,0,1, "keep clauses compact") \
 OPTION( arenasort,         1,  0,  1,0,0,1, "sort clauses in arena") \

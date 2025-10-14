@@ -1,4 +1,3 @@
-//#include "allrpr.hpp"
 #include "internal.hpp"
 
 namespace CaDiCaL {
@@ -22,8 +21,8 @@ extern "C" {
 
 	// Callback function for kitten_trace_core. 
 	// Stores a clause from the kitten core for LRAT proof construction.
-  // Maps original (cadical known) clauses back to cadical ids (including units).
-  // Learned clauses won't be given a cadical id until their proof is emitted.
+	// Maps original (cadical known) clauses back to cadical ids (including units).
+	// Learned clauses won't be given a cadical id until their proof is emitted.
 	//
 	static void extract_clause_from_kitten (void *state, unsigned kitten_id, unsigned allrpr_id, bool learned,
 									size_t clause_size, const unsigned *elits,
@@ -101,6 +100,10 @@ extern "C" {
 	//
 	void Internal::allrpr_collect_learn_reasons (int &uip, allrpr_proof_clauses &pcs) {
 		START (allrprcollect);
+	#ifdef LOGGING
+  	if (opts.log)
+  		kitten_set_logging (citten);
+  #endif
 		LOG ("ALLRPR COLLECT LEARNED REASONS");
 		assert (conflict);
 		assert (citten);
@@ -149,6 +152,10 @@ extern "C" {
 	//
 	void Internal::allrpr_collect_minimize_reasons(allrpr_proof_clauses &pcs) {
 		START (allrprcollect);
+	#ifdef LOGGING
+  	if (opts.log)
+  		kitten_set_logging (citten);
+  #endif
 		LOG ("ALLRPR COLLECT MINIMIZE REASONS");
 		assert (citten);
 		vector<int> units_flagged;
@@ -185,6 +192,10 @@ extern "C" {
 	//
 	void Internal::allrpr_collect_shrink_reasons (allrpr_proof_clauses &pcs) {
 		START (allrprcollect);
+	#ifdef LOGGING
+  	if (opts.log)
+  		kitten_set_logging (citten);
+  #endif
 		LOG (allrpr_shrunken, "ALLRPR COLLECT SHRINK REASONS FOR ");
 		vector<int> worked;
 		for (const auto &lit : allrpr_shrunken) {
@@ -298,10 +309,18 @@ extern "C" {
     LOG ("KITTEN ASSUME UIP %d", uip);
     kitten_assume_signed (citten, uip); // Assume uip last (not not uip)
 
-		#ifdef LOGGING
+    #ifdef LOGGING
   	if (opts.log)
   		kitten_set_logging (citten);
   	#endif
+
+    // shuffle assumptions for the possibility of a smaller core failing clause
+    if (opts.allrprshufflea) {
+    	kitten_shuffle_assumptions (citten);
+    }
+    if (opts.allrprshufflec) {
+    	kitten_shuffle_clauses (citten);
+    }
 
 		kitten_track_antecedents (citten);
 		kitten_solve (citten);
@@ -310,6 +329,14 @@ extern "C" {
 		// chains, which can be used for deriving an LRAT proof.
 		kitten_compute_clausal_core (citten, nullptr);
 		kitten_trace_core (citten, &pcs, extract_clause_from_kitten);
+	
+		if (clause.size () > pcs.proof_clauses[pcs.proof_clauses.size () - 1].literals.size ()) {
+			LOG ("SUCCESSFUL FURTHER MINIMIZATION");
+			LOG (clause, "cadical learned clause: ");
+		}
+		// this is just for checking, how this can happen. Comment out later!
+		//assert (clause.size () == pcs.proof_clauses[pcs.proof_clauses.size () - 1].literals.size ());
+
 		allrpr_build_lrat (pcs);
 		STOP (allrprsolve);
 	}

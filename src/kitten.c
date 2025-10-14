@@ -1732,6 +1732,14 @@ static unsigned int2u (int lit) {
   return (lit < 0) + 2u * (unsigned) idx;
 }
 
+// -----------------------------------------------------------------------------
+// ALLRPR kitten hack for randomizing assumptions
+void kitten_shuffle_assumptions (kitten *kitten) {
+  LOG ("shuffling assumptions");
+  shuffle_unsigned_stack (kitten, &kitten->assumptions);
+}
+// -----------------------------------------------------------------------------
+
 void kitten_assume (kitten *kitten, unsigned elit) {
   REQUIRE_INITIALIZED ();
   if (kitten->status)
