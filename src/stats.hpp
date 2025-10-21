@@ -369,6 +369,15 @@ struct Stats {
     int64_t unary_ites = 0;
   } congruence;
 
+  struct {
+    int64_t kittencalls = 0;   // total kitten calls
+    int64_t added = 0;         // total clauses added
+    int64_t nminimized = 0;    // number of further minimizations
+    int64_t sminimized = 0;    // sum of minimized literals
+    int64_t nimprovedglue = 0; // number of times glue improved
+    int64_t simprovedglue = 0; // sum of glue improvements
+  } allrpr;
+
   Stats ();
 
   void print (Internal *);

@@ -21,8 +21,9 @@
 \
 /*      NAME         DEFAULT, LO, HI,O,P,R, USAGE */ \
 \
-OPTION( allrprshufflea,    1,  1,  1,0,0,1, "shuffle assumptions in allrpr") \
-OPTION( allrprshufflec,    1,  1,  1,0,0,1, "shuffle clauses in allrpr") \
+OPTION( allrprextra,       1,  0,  1,0,0,1, "collect extra clauses in allrpr") \
+OPTION( allrprshufflea,    1,  0,  1,0,0,1, "shuffle assumptions in allrpr") \
+OPTION( allrprshufflec,    1,  0,  1,0,0,1, "shuffle clauses in allrpr") \
 OPTION( arena,             1,  0,  1,0,0,1, "allocate clauses in arena") \
 OPTION( arenacompact,      1,  0,  1,0,0,1, "keep clauses compact") \
 OPTION( arenasort,         1,  0,  1,0,0,1, "sort clauses in arena") \
@@ -143,7 +144,7 @@ OPTION( instantiateonce,   1,  0,  1,0,0,1, "instantiate each clause once") \
 OPTION( lidrup,            0,  0,  1,0,0,1, "linear incremental proof format") \
 LOGOPT( log,               0,  0,  1,0,0,0, "enable logging") \
 LOGOPT( logsort,           0,  0,  1,0,0,0, "sort logged clauses") \
-OPTION( lrat,              0,  0,  1,0,0,1, "use LRAT proof format") \
+OPTION( lrat,              1,  1,  1,0,0,1, "use LRAT proof format") \
 OPTION( lucky,             1,  0,  1,0,0,1, "lucky phases") \
 OPTION( luckyearly,        1,  0,  1,0,0,1, "lucky phases before preprocessing") \
 OPTION( luckylate,         1,  0,  1,0,0,1, "lucky phases after preprocessing") \

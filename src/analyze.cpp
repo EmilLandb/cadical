@@ -1188,7 +1188,7 @@ void Internal::analyze () {
   // Update glue and learned (1st UIP literals) statistics.
   //
   int size = (int) clause.size ();
-  const int glue = (int) levels.size () - 1;
+  int glue = (int) levels.size () - 1; // changed from const. Needs update after allrpr
   LOG (clause, "1st UIP size %d and glue %d clause", size, glue);
   UPDATE_AVERAGE (averages.current.glue.fast, glue);
   UPDATE_AVERAGE (averages.current.glue.slow, glue);
@@ -1208,7 +1208,10 @@ void Internal::analyze () {
   if (lrat) {
     allrpr_pcs.internal = this;
     allrpr_init_citten ();
-    allrpr_collect_learn_reasons (uip, allrpr_pcs);
+    if (opts.allrprextra)
+      allrpr_collect_all (allrpr_pcs);
+    else
+      allrpr_collect_learn_reasons (uip, allrpr_pcs);
   }
   
   // Minimize the 1st UIP clause as pioneered by Niklas Soerensson in
@@ -1218,7 +1221,8 @@ void Internal::analyze () {
     if (opts.shrink) {
       shrink_and_minimize_clause ();
       // ALLRPR collect shrink reasons
-      if (lrat) {
+      // if allrprextra is enabled, a superset is collected anyways
+      if (lrat && !opts.allrprextra) { 
         allrpr_collect_shrink_reasons (allrpr_pcs);
         allrpr_shrunken.clear ();
       }
@@ -1231,7 +1235,7 @@ void Internal::analyze () {
     else if (opts.minimize) {
       minimize_clause ();
       // ALLRPR collect minimize reasons
-      if (lrat)
+      if (lrat && !opts.allrprextra)
         allrpr_collect_minimize_reasons (allrpr_pcs);
 
       START (minimize);
@@ -1262,11 +1266,34 @@ void Internal::analyze () {
   // (views) to be more efficient but we would have to distinguish in proof
   //
   if (lrat) {
-    // ALLRPR construct proof with kitten
+    // ALLRPR construct proof (and try to minimize) with kitten
     lrat_chain.clear ();
     allrpr_kitten_catch_rat (uip, allrpr_pcs);
     allrpr_reset_citten ();
-    
+    // uip might have changed
+    MSORT (opts.radixsortlim, clause.begin (), clause.end (),
+           analyze_trail_negative_rank (this), analyze_trail_larger (this));
+    LOG ("updating uip from %d to %d", uip, -clause[0]);
+    uip = -clause[0];
+    // glue might have changed
+    glue = 0; // glue is # levels in clause - 1
+    int lowest_level = var (uip).level;
+    for (const int &lit : clause) { // clause is sorted by trail rank
+      if (var (lit).level < lowest_level)
+        glue++;
+    }
+
+    // it is possible that kitten finds a further minimized learned clause
+    // that has its highest decision level far below the current level.
+    // This, together with chronological backtracking may lead to situations 
+    // where after backtracking the new learned clause is still completely
+    // falsified. Therefore we backtrack to the new clauses highest decision
+    // level first to ensure that any backjumping determined by
+    // 'determine_actual_backtrack_level ()' will have the new clause propagating.
+    //
+    if (level > var (uip).level)
+      backtrack (var (uip).level); 
+
     /*
     LOG (unit_chain, "unit chain: ");
     for (auto id : unit_chain)
@@ -1282,6 +1309,32 @@ void Internal::analyze () {
   int jump;
   Clause *driving_clause = new_driving_clause (glue, jump);
   UPDATE_AVERAGE (averages.current.jump, jump);
+
+  // now, what may also happen is, that the clause contains two or more literals
+  // on the highest decision level. Then the clause cannot be used as a 
+  // driving clause, since after backtracking there is no propagation.
+  // We can instead just set the conflict to this newly learned clause and
+  // return to propagate, which will then trigger conflict analysis again.
+  //
+  if (clause.size () > 1 && var (uip).level == var (clause[1]).level) {
+    LOG (driving_clause, "Setting as new conflict ");
+    conflict = driving_clause; // analyze again
+
+    // Clean up.
+    //
+    clear_analyzed_literals ();
+    clear_unit_analyzed_literals ();
+    clear_analyzed_levels ();
+    clause.clear ();
+    lrat_chain.clear ();
+
+    // ALLRPR delete intermediate proof steps.
+    if (lrat)
+      allrpr_delete_intermediate_lrat (allrpr_pcs);
+    
+    STOP (analyze);
+    return;
+  }
 
   int new_level = determine_actual_backtrack_level (jump);
   UPDATE_AVERAGE (averages.current.level, new_level);

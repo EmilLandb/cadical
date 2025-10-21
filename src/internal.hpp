@@ -762,6 +762,7 @@ struct Internal {
   void allrpr_collect_learn_reasons (int &uip, allrpr_proof_clauses &pcs); // collect reasons between conflict and 1UIP clause
   void allrpr_collect_minimize_reasons (allrpr_proof_clauses &pcs); // collect reasons between 1UIP clause and minimized clause
   void allrpr_collect_shrink_reasons (allrpr_proof_clauses &pcs); // collect shrink reasons for literals inm allrpr_shrunken
+  void allrpr_collect_all (allrpr_proof_clauses &pcs); // collect all reasons and possible propagation candidates
   void allrpr_build_lrat (allrpr_proof_clauses &pcs); // builds LRAT proof from collected kitten core
   void allrpr_delete_intermediate_lrat (allrpr_proof_clauses &pcs); // deletes intermediate LRAT proof steps 
   void allrpr_kitten_catch_rat (int &uip, allrpr_proof_clauses &pcs); // LRAT chain from kitten

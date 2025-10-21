@@ -64,7 +64,26 @@ void Stats::print (Internal *internal) {
   extendbytes *= sizeof (int);
 
   SECTION ("statistics");
-
+  if (all || stats.allrpr.kittencalls) {
+     PRT ("allrpr:          %15" PRId64 "   %10.2f %%  of conflicts",
+          stats.allrpr.kittencalls, 
+          percent (stats.allrpr.kittencalls, stats.conflicts));
+     PRT ("  added:         %15" PRId64 "   %10.2f    per kitten call",
+          stats.allrpr.added,
+          relative (stats.allrpr.added, stats.allrpr.kittencalls));
+     PRT ("  furthermini    %15" PRId64 "   %10.2f %%  of kitten calls",
+          stats.allrpr.nminimized,
+          percent (stats.allrpr.nminimized, stats.allrpr.kittencalls));
+     PRT ("  minilits       %15" PRId64 "   %10.2f    per further minimization",
+          stats.allrpr.sminimized,
+          relative (stats.allrpr.sminimized, stats.allrpr.nminimized));
+     PRT ("  improvedglue   %15" PRId64 "   %10.2f %%  of further minimizations",
+          stats.allrpr.nimprovedglue,
+          percent (stats.allrpr.nimprovedglue, stats.allrpr.nminimized));
+     PRT ("  totalglue      %15" PRId64 "   %10.2f    per glue improvement",
+          stats.allrpr.simprovedglue,
+          relative (stats.allrpr.simprovedglue, stats.allrpr.nimprovedglue));
+  }
   if (all || stats.blocked) {
     PRT ("blocked:         %15" PRId64
          "   %10.2f %%  of irredundant clauses",

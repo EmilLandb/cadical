@@ -20,6 +20,7 @@ namespace CaDiCaL {
 	// that units are not added to reasons.
 	struct allrpr_proof_clauses {
 		Internal *internal;
+		unsigned nlearned = 0;
 		std::vector<struct Clause *> reasons; // indexed by allrpr_id
 		std::vector<allrpr_proof_clause> proof_clauses; // output of kitten
 	};
