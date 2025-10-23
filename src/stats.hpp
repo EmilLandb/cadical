@@ -376,6 +376,10 @@ struct Stats {
     int64_t sminimized = 0;    // sum of minimized literals
     int64_t nimprovedglue = 0; // number of times glue improved
     int64_t simprovedglue = 0; // sum of glue improvements
+    int64_t nintermediate = 0; // number of times intermediate clauses were learnt in kitten
+    int64_t sintermediate = 0; // sum of intermediate clauses learnt in kitten
+    int64_t ncoreclauses = 0;  // total number of core clauses
+    int64_t slearnedlits = 0;  // total number of literals in the final learned clause
   } allrpr;
 
   Stats ();

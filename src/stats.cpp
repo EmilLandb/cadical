@@ -71,6 +71,18 @@ void Stats::print (Internal *internal) {
      PRT ("  added:         %15" PRId64 "   %10.2f    per kitten call",
           stats.allrpr.added,
           relative (stats.allrpr.added, stats.allrpr.kittencalls));
+     PRT ("  coreclauses:   %15" PRId64 "   %10.2f    per kitten call",
+          stats.allrpr.ncoreclauses,
+          relative (stats.allrpr.ncoreclauses, stats.allrpr.kittencalls));
+     PRT ("  withinter      %15" PRId64 "   %10.2f %%  of kitten calls",
+          stats.allrpr.nintermediate,
+          percent (stats.allrpr.nintermediate, stats.allrpr.kittencalls));
+     PRT ("  intermediates  %15" PRId64 "   %10.2f    per with intermediates",
+          stats.allrpr.sintermediate,
+          relative (stats.allrpr.sintermediate, stats.allrpr.nintermediate));
+     PRT ("  learnedlits    %15" PRId64 "   %10.2f    per kitten call",
+          stats.allrpr.slearnedlits,
+          relative (stats.allrpr.slearnedlits, stats.allrpr.kittencalls));
      PRT ("  furthermini    %15" PRId64 "   %10.2f %%  of kitten calls",
           stats.allrpr.nminimized,
           percent (stats.allrpr.nminimized, stats.allrpr.kittencalls));

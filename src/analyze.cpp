@@ -1269,20 +1269,29 @@ void Internal::analyze () {
     // ALLRPR construct proof (and try to minimize) with kitten
     lrat_chain.clear ();
     allrpr_kitten_catch_rat (uip, allrpr_pcs);
-    allrpr_reset_citten ();
+    allrpr_reset_citten ();  // TODO: what is the correct choice ?
+    //kitten_clear (citten); // 
     // uip might have changed
     MSORT (opts.radixsortlim, clause.begin (), clause.end (),
            analyze_trail_negative_rank (this), analyze_trail_larger (this));
     LOG ("updating uip from %d to %d", uip, -clause[0]);
     uip = -clause[0];
     // glue might have changed
-    glue = 0; // glue is # levels in clause - 1
+    const int old_glue = glue;
+    glue = 0; 
     int lowest_level = var (uip).level;
     for (const int &lit : clause) { // clause is sorted by trail rank
-      if (var (lit).level < lowest_level)
+      if (var (lit).level < lowest_level) {
+        lowest_level = var (lit).level;
         glue++;
+      }
     }
-
+    if (old_glue - glue) {
+      LOG ("glue improved from %d to %d", old_glue, glue);
+      assert (glue < old_glue);
+      stats.allrpr.nimprovedglue++;
+      stats.allrpr.simprovedglue += old_glue - glue;
+    }
     // it is possible that kitten finds a further minimized learned clause
     // that has its highest decision level far below the current level.
     // This, together with chronological backtracking may lead to situations 

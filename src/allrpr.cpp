@@ -56,7 +56,6 @@ extern "C" {
 		}
 		else {
 			assert (chain_size);
-			pcs->nlearned++;
 			pc.allrpr_id = INVALID; // id won't be given until LRAT proof is constructed
 			pc.cadical_id = INVALID64;
 			const unsigned *end = elits + clause_size;
@@ -252,6 +251,7 @@ extern "C" {
 	//
 	void Internal::allrpr_collect_all (allrpr_proof_clauses &pcs) {
 		LOG ("ALLRPR COLLECT ALL");
+		START (allrprcollect);
 		assert (conflict);
 		assert (citten);
 		assert (citten);
@@ -315,17 +315,34 @@ extern "C" {
 			}
 		}
 		stats.allrpr.added += added;
+		STOP (allrprcollect);
 		LOG ("ALLRPR COLLECT ALL added %lld clauses", added);
 	}
 
 	void Internal::allrpr_build_lrat (allrpr_proof_clauses &pcs) {
 		LOG ("ALLRPR BUILD LRAT");
+		START (allrprlrat);
 		std::vector<allrpr_proof_clause> &core = pcs.proof_clauses;
-		unsigned last_learned_id = core[core.size() - 1].kitten_id; // kitten_id of last learned clause
+		allrpr_proof_clause &final_clause = core[core.size() - 1];
 
+		// found weird trace where the learned clause already existed
+		// here the chain is just the existing clauses id
+		if (!final_clause.learned) { 
+			LOG (final_clause.literals, "deriving LRAT proof for");
+			lrat_chain.push_back (final_clause.cadical_id);
+			LOG (lrat_chain, "LRAT chain:");
+			return;
+		}
+
+		unsigned last_learned_id = final_clause.kitten_id;
+		int nlearned = 0;
+		int norig = 0;
 		for (auto &pc: core) {
-			if (!pc.learned) // allready proven clause (known to cadical)
+			if (!pc.learned) { // allready proven clause (known to cadical)
+				norig++;
 				continue;
+			} 
+			nlearned++;
 			LOG (pc.literals, "deriving LRAT proof for ");
 			assert (pc.cadical_id == INVALID64);
 			// build chain of cadical ids
@@ -350,11 +367,19 @@ extern "C" {
 				lrat_chain.clear ();
 			}
 		}
+		assert (nlearned > 0);
+		if (nlearned - 1) { // only track intermediate clauses.
+			LOG ("%d intermediate clauses learned", nlearned - 1);
+			stats.allrpr.nintermediate++;
+			stats.allrpr.sintermediate += nlearned - 1; 
+		}
+		stats.allrpr.ncoreclauses += nlearned + norig;
 		// now all intermediate learned clauses are proven.
+		STOP (allrprlrat);
 	}
 
 	void Internal::allrpr_delete_intermediate_lrat (allrpr_proof_clauses &pcs) {
-		START (allrprsolve);
+		START (allrprlrat);
 		LOG ("ALLRPR DELETE INTERMEDIATE LRAT");
 		// skip last learned clause, which is stored at the end of proof_clauses
 		for (size_t i = 0; i < pcs.proof_clauses.size () - 1; i++) {
@@ -363,7 +388,7 @@ extern "C" {
 				continue;
 			proof->delete_clause (pc.cadical_id, true, pc.literals);
 		}
-		STOP (allrprsolve);
+		STOP (allrprlrat);
 	} 
 
 	// Reconstructs a LRAT chain for the learned clause in internal->clause.
@@ -406,26 +431,28 @@ extern "C" {
 		// chains, which can be used for deriving an LRAT proof.
 		kitten_compute_clausal_core (citten, nullptr);
 		kitten_trace_core (citten, &pcs, extract_clause_from_kitten);
+		STOP (allrprsolve);
+		
+		allrpr_build_lrat (pcs);
+		vector<int> &klause = 
+										pcs.proof_clauses[pcs.proof_clauses.size () - 1].literals;
 		const size_t old_size = clause.size ();
-		const size_t new_size = 
-							pcs.proof_clauses[pcs.proof_clauses.size () - 1].literals.size ();
+		const size_t new_size = klause.size ();
 		if (old_size > new_size) {
 			LOG (clause, "Successful further minimization of");
-			clause.clear ();
-			for (const int &lit : pcs.proof_clauses[pcs.proof_clauses.size () - 1].literals) {
-				clause.push_back (lit);
-			}
+			clause = std::move(klause);
+			//clause.clear ();
+			//for (const int &lit : pcs.proof_clauses[pcs.proof_clauses.size () - 1].literals) {
+			//	clause.push_back (lit);
+			//}
 			LOG (clause, "to");	
 			stats.allrpr.nminimized++;
 			stats.allrpr.sminimized += old_size - new_size;
 		}
 		stats.allrpr.kittencalls++;
-
+		stats.allrpr.slearnedlits += (int64_t) new_size;
 		// this is just for checking, how this can happen. Comment out later!
 		//assert (clause.size () == pcs.proof_clauses[pcs.proof_clauses.size () - 1].literals.size ());
-
-		allrpr_build_lrat (pcs);
-		STOP (allrprsolve);
 	}
 
 }
