@@ -755,14 +755,32 @@ struct Internal {
   // Automated Local Linear Resolution Proof Reconstruction
   //
   std::vector<int> allrpr_shrunken; // literals removed in shrink
+  signed char &allrpr_mark (int lit, allrpr_proof_clauses &pcs);
+  inline bool is_true (int lit, allrpr_proof_clauses &pcs);   
+  inline bool is_false (int lit, allrpr_proof_clauses &pcs);  
+  inline bool is_target (int lit, allrpr_proof_clauses &pcs); 
+  inline bool is_worked (int lit, allrpr_proof_clauses &pcs);
+  inline bool is_reason_added (int lit, allrpr_proof_clauses &pcs); 
+  inline void set_true (int lit, allrpr_proof_clauses &pcs);  
+  inline void set_false (int lit, allrpr_proof_clauses &pcs);  
+  inline void set_target (int lit, allrpr_proof_clauses &pcs);
+  inline void unset_target (int lit, allrpr_proof_clauses &pcs);
+  inline void set_worked (int lit, allrpr_proof_clauses &pcs);
+  inline void set_reason_added (int lit, allrpr_proof_clauses &pcs);
   void allrpr_init_citten (); 
   void allrpr_reset_citten ();
+  void allrpr_shuffle(vector<int> &clause); 
+  inline bool clause_is_qualified (Clause *c, int &nonfalse, allrpr_proof_clauses &pcs);
   inline void feed_reason (allrpr_proof_clauses &pcs, Clause *reason); // book keeping and adding clause to kitten
   inline void feed_unit_reason (int unit); // just adding unit clause to kitten
   void allrpr_collect_learn_reasons (int &uip, allrpr_proof_clauses &pcs); // collect reasons between conflict and 1UIP clause
   void allrpr_collect_minimize_reasons (allrpr_proof_clauses &pcs); // collect reasons between 1UIP clause and minimized clause
   void allrpr_collect_shrink_reasons (allrpr_proof_clauses &pcs); // collect shrink reasons for literals inm allrpr_shrunken
   void allrpr_collect_all (allrpr_proof_clauses &pcs); // collect all reasons and possible propagation candidates
+  void allrpr_collect_all_binary (vector<int> &base, allrpr_proof_clauses &pcs); // collect all binary clauses from trail
+  void allrpr_mark_graph (vector<int> &base, allrpr_proof_clauses &pcs); // mark the implication graph between conflict and learned clause
+  void allrpr_collect_more (vector<int> &cleanmarked, allrpr_proof_clauses &pcs); // collect more but not all
+  void allrpr_collect_prop (vector<int> &base, allrpr_proof_clauses &pcs);
   void allrpr_build_lrat (allrpr_proof_clauses &pcs); // builds LRAT proof from collected kitten core
   void allrpr_delete_intermediate_lrat (allrpr_proof_clauses &pcs); // deletes intermediate LRAT proof steps 
   void allrpr_kitten_catch_rat (int &uip, allrpr_proof_clauses &pcs); // LRAT chain from kitten

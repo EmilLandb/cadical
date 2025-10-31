@@ -95,6 +95,36 @@ void Stats::print (Internal *internal) {
      PRT ("  totalglue      %15" PRId64 "   %10.2f    per glue improvement",
           stats.allrpr.simprovedglue,
           relative (stats.allrpr.simprovedglue, stats.allrpr.nimprovedglue));
+     PRT ("  coreswithextra %15" PRId64 "   %10.2f %%  of kitten calls",
+          stats.allrpr.extraisincore,
+          percent (stats.allrpr.extraisincore, stats.allrpr.kittencalls));
+     PRT ("  extras         %15" PRId64 "   %10.2f    per core with extra",
+          stats.allrpr.extracsincore,
+          relative (stats.allrpr.extracsincore, stats.allrpr.extraisincore));
+     PRT ("  redextraincore %15" PRId64 "   %10.2f %%  of cores with extra",
+          stats.allrpr.redextraincore,
+          percent (stats.allrpr.redextraincore, stats.allrpr.extraisincore));
+     PRT ("  redextras      %15" PRId64 "   %10.2f    per core with red extra",
+          stats.allrpr.redextras,
+          relative (stats.allrpr.redextras, stats.allrpr.redextraincore));
+     PRT ("  corewextra>3   %15" PRId64 "   %10.2f %%  of core with extra",
+          stats.allrpr.extragrternaryincore,
+          percent (stats.allrpr.extragrternaryincore, stats.allrpr.extraisincore));
+     PRT ("  extras>3       %15" PRId64 "   %10.2f    per core with extra",
+          stats.allrpr.extragrternary,
+          relative (stats.allrpr.extragrternary, stats.allrpr.extraisincore));
+     PRT ("  shrink->kitten %15" PRId64 "   %10.2f %%  of kitten calls",
+          stats.allrpr.kittenaftershrink,
+          percent (stats.allrpr.kittenaftershrink, stats.allrpr.kittencalls));
+     PRT ("  shrink->mini   %15" PRId64 "   %10.2f %%  of further minimizations",
+          stats.allrpr.miniaftershrink,
+          percent (stats.allrpr.miniaftershrink, stats.allrpr.nminimized));
+     PRT ("  shrink->glue   %15" PRId64 "   %10.2f %%  of glue improvements",
+          stats.allrpr.glueaftershrink,
+          percent (stats.allrpr.glueaftershrink, stats.allrpr.nimprovedglue));
+     PRT ("  totshrinkglue  %15" PRId64 "   %10.2f    per shrink->glue",
+          stats.allrpr.sglueaftershrink,
+          relative (stats.allrpr.sglueaftershrink, stats.allrpr.glueaftershrink));
   }
   if (all || stats.blocked) {
     PRT ("blocked:         %15" PRId64

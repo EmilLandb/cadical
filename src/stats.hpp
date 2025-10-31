@@ -380,6 +380,16 @@ struct Stats {
     int64_t sintermediate = 0; // sum of intermediate clauses learnt in kitten
     int64_t ncoreclauses = 0;  // total number of core clauses
     int64_t slearnedlits = 0;  // total number of literals in the final learned clause
+    int64_t extraisincore = 0; // number of times a kitten core contained a non-reason (extra) clause
+    int64_t extracsincore = 0; // total number of extra clauses in kitten cores 
+    int64_t redextraincore = 0; // number of times a kitten core contained a non-reason redundant clause
+    int64_t redextras = 0;     // total number of redundant extra clauses in kitten cores
+    int64_t extragrternaryincore = 0; // number of times a kitten core contained a non-reason > ternary clause
+    int64_t extragrternary = 0; // total number of times a extra clause is larger than ternary
+    int64_t kittenaftershrink = 0; // total number of kittens after successful shrink
+    int64_t miniaftershrink = 0; // total number of times a further minimization was achieved after successful shrinking
+    int64_t glueaftershrink = 0; // total number of times the glue improved after further minimization after successful shrinking
+    int64_t sglueaftershrink = 0; // total glue improvements after further minimization after successful shrinking
   } allrpr;
 
   Stats ();
