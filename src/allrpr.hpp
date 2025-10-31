@@ -21,7 +21,6 @@ namespace CaDiCaL {
 	struct allrpr_proof_clauses {
 		Internal *internal;
 		std::vector<struct Clause *> reasons; // indexed by allrpr_id
-		std::vector<bool> is_extra;  // TODO: remove later on
 		std::vector<allrpr_proof_clause> proof_clauses; // output of kitten
 		std::vector<signed char> marks; // own marks for literals
 	};

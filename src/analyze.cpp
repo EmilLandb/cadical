@@ -1188,7 +1188,7 @@ void Internal::analyze () {
   // Update glue and learned (1st UIP literals) statistics.
   //
   int size = (int) clause.size ();
-  int glue = (int) levels.size () - 1; // changed from const. Needs update after allrpr
+  const int glue = (int) levels.size () - 1;
   LOG (clause, "1st UIP size %d and glue %d clause", size, glue);
   UPDATE_AVERAGE (averages.current.glue.fast, glue);
   UPDATE_AVERAGE (averages.current.glue.slow, glue);
@@ -1205,63 +1205,40 @@ void Internal::analyze () {
 
   // ALLRPR 
   allrpr_proof_clauses allrpr_pcs;
-  allrpr_pcs.marks.resize (2 * internal->max_var + 3);
   if (lrat) {
     allrpr_pcs.internal = this;
     allrpr_init_citten ();
-    if (opts.allrprextra && opts.allrprtrail)
-      allrpr_collect_all (allrpr_pcs);
-    else if (!opts.allrprextra)
-      allrpr_collect_learn_reasons (uip, allrpr_pcs);
+    allrpr_collect_learn_reasons (uip, allrpr_pcs);
   }
   
   // Minimize the 1st UIP clause as pioneered by Niklas Soerensson in
   // MiniSAT and described in our joint SAT'09 paper.
   //
-  const unsigned old_size = clause.size (); // TODO: remove later on
-  bool successful_shrink = false; // TODO: remove later on
-  vector<int> base; // TODO: move later on
   if (size > 1) {
     if (opts.shrink) {  
       shrink_and_minimize_clause ();
       // ALLRPR collect shrink reasons
-      // if allrprextra is enabled, a superset is collected anyways
-      if (lrat && !opts.allrprextra) { 
+      if (lrat) { 
         allrpr_collect_shrink_reasons (allrpr_pcs);
         allrpr_shrunken.clear ();
       }
-    
-      // we need the added flag in collect more but also the flag information from
-      // shrink and analysis
-      if (opts.allrprextra && !opts.allrprtrail)
-        // TODO: remove this after testing
-        //allrpr_collect_prop (base, allrpr_pcs);
-        //for (signed char &sc : allrpr_pcs.marks) // TODO: remove after testing
-        //  sc = 0; 
-        allrpr_mark_graph (base, allrpr_pcs); 
-    
+      // moved so allrpr_collect_shrink_reasons can use the flags 
+      // for finding the necessary reasons
       START (minimize);
-      clear_minimized_literals (); // added flag will be cleaned up here
+      clear_minimized_literals ();
       STOP (minimize);
-      
     }
     else if (opts.minimize) {
       minimize_clause ();
       // ALLRPR collect minimize reasons
-      if (lrat && !opts.allrprextra)
+      if (lrat)
         allrpr_collect_minimize_reasons (allrpr_pcs);
-
+      // moved for the same reason as above
       START (minimize);
       clear_minimized_literals ();
       STOP (minimize);
     }
     size = (int) clause.size ();
-
-    // TODO: remove later on vv
-    if (old_size > size) {
-      LOG ("Successful shrink!");
-      successful_shrink = true;
-    } 
       
     // Update decision heuristics.
     //
@@ -1274,8 +1251,6 @@ void Internal::analyze () {
       external->export_learned_large_clause (clause);
   } else if (external->learner)
       external->export_learned_unit_clause (-uip);
-    else if (opts.allrprextra && !opts.allrprtrail) 
-      allrpr_mark_graph (base, allrpr_pcs);
 
   // Update actual size statistics.
   //
@@ -1287,74 +1262,15 @@ void Internal::analyze () {
   // (views) to be more efficient but we would have to distinguish in proof
   //
   if (lrat) {
-    if (opts.allrprshufflea)
-        allrpr_shuffle (clause);
-    else if (opts.allrprreverse) { // sort clause by decreasing trail position
-      minimize_sort_clause ();
-      reverse (clause.begin (), clause.end ());
-    }
-    if (opts.allrprextra && opts.allrprbin)
-      allrpr_collect_all_binary (base, allrpr_pcs);
-    else if (opts.allrprextra && !opts.allrprtrail)
-      allrpr_collect_more (base, allrpr_pcs);
-    // ALLRPR construct proof (and try to minimize) with kitten
+    // ALLRPR construct proof with kitten
     lrat_chain.clear ();
     allrpr_kitten_catch_rat (uip, allrpr_pcs);
-    allrpr_reset_citten ();  // TODO: what is the correct choice ?
-    // kitten_clear (citten); // 
+    allrpr_reset_citten ();  // This frees kitten (idk the better choice...)
+    //kitten_clear (citten); // This just memsets kitten to 0
 
-    // TODO: remove later on
-    if (successful_shrink) {
-      stats.allrpr.kittenaftershrink++;
-      if ((int) clause.size () < size) {
-        LOG ("Successful further minimzation after successful shrink");
-        stats.allrpr.miniaftershrink++;
-      }
-    }
-
-    // uip might have changed
-    if (clause.size ()) {
-      MSORT (opts.radixsortlim, clause.begin (), clause.end (),
-           analyze_trail_negative_rank (this), analyze_trail_larger (this));
-      LOG ("updating uip from %d to %d", uip, -clause[0]);
-      uip = -clause[0];
-      // glue might have changed
-      const int old_glue = glue;
-      glue = 0; 
-      int lowest_level = var (uip).level;
-      for (const int &lit : clause) { // clause is sorted by trail rank
-        if (var (lit).level < lowest_level) {
-          lowest_level = var (lit).level;
-          glue++;
-        }
-      }
-      if (old_glue - glue) {
-        LOG ("glue improved from %d to %d", old_glue, glue);
-        assert (glue < old_glue);
-        stats.allrpr.nimprovedglue++;
-        stats.allrpr.simprovedglue += old_glue - glue;
-        if (successful_shrink) { // TODO: remove later on
-          LOG ("glue improved after further minimzation after successful shrink");
-          stats.allrpr.glueaftershrink++;
-          stats.allrpr.sglueaftershrink += old_glue - glue;
-        }
-      }
-      // it is possible that kitten finds a further minimized learned clause
-      // that has its highest decision level far below the current level.
-      // This, together with chronological backtracking may lead to situations 
-      // where after backtracking the new learned clause is still completely
-      // falsified. Therefore we backtrack to the new clauses highest decision
-      // level first to ensure that any backjumping determined by
-      // 'determine_actual_backtrack_level ()' will have the new clause propagating.
-      //
-      if (level > var (uip).level)
-        backtrack (var (uip).level);
-    }
-    /*
-    LOG (unit_chain, "unit chain: ");
-    for (auto id : unit_chain)
-      lrat_chain.push_back (id);
-    */
+    //LOG (unit_chain, "unit chain: ");
+    //for (auto id : unit_chain)
+    //  lrat_chain.push_back (id);
     unit_chain.clear ();
     //reverse (lrat_chain.begin (), lrat_chain.end ());
   }
@@ -1365,32 +1281,6 @@ void Internal::analyze () {
   int jump;
   Clause *driving_clause = new_driving_clause (glue, jump);
   UPDATE_AVERAGE (averages.current.jump, jump);
-
-  // now, what may also happen is, that the clause contains two or more literals
-  // on the highest decision level. Then the clause cannot be used as a 
-  // driving clause, since after backtracking there is no propagation.
-  // We can instead just set the conflict to this newly learned clause and
-  // return to propagate, which will then trigger conflict analysis again.
-  //
-  if (clause.size () > 1 && var (uip).level == var (clause[1]).level) {
-    LOG (driving_clause, "Setting as new conflict ");
-    conflict = driving_clause; // analyze again
-
-    // Clean up.
-    //
-    clear_analyzed_literals ();
-    clear_unit_analyzed_literals ();
-    clear_analyzed_levels ();
-    clause.clear ();
-    lrat_chain.clear ();
-
-    // ALLRPR delete intermediate proof steps.
-    if (lrat)
-      allrpr_delete_intermediate_lrat (allrpr_pcs);
-    
-    STOP (analyze);
-    return;
-  }
 
   int new_level = determine_actual_backtrack_level (jump);
   UPDATE_AVERAGE (averages.current.level, new_level);
