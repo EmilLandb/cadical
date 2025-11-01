@@ -21,13 +21,12 @@
 \
 /*      NAME         DEFAULT, LO, HI,O,P,R, USAGE */ \
 \
-OPTION( allrprbin,         0,  0,  1,0,0,1, "collect binary clauses from trail watches") \
-OPTION( allrprextra,       1,  0,  1,0,0,1, "collect extra clauses") \
-OPTION( allrprorder,       0,  0,  1,0,0,1, "only collect propagating wrt. trail") \
+OPTION( allrprfiltershrink,0,  0,  1,0,0,1, "only try further minimization if shrink was successful") \
+OPTION( allrprgluethresh,  1,  0,  1,0,0,1, "glue threshold for trying kitten minimization (predicate likely_to_be_kept)") \
+OPTION( allrprorder,       0,  0,  1,0,0,1, "sort clause in ascending trail order") \
 OPTION( allrprreverse,     0,  0,  1,0,0,1, "sort clause in descending trail order") \
 OPTION( allrprshufflea,    1,  0,  1,0,0,1, "shuffle assumptions") \
 OPTION( allrprshufflec,    1,  0,  1,0,0,1, "shuffle clauses") \
-OPTION( allrprtrail,       0,  0,  1,0,0,1, "collect clauses from trail watches") \
 OPTION( arena,             1,  0,  1,0,0,1, "allocate clauses in arena") \
 OPTION( arenacompact,      1,  0,  1,0,0,1, "keep clauses compact") \
 OPTION( arenasort,         1,  0,  1,0,0,1, "sort clauses in arena") \

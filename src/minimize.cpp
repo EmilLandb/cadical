@@ -120,7 +120,6 @@ void Internal::minimize_clause () {
   std::vector<int> stack;
   for (; i != end; i++) {
     if (minimize_literal (-*i)) {
-      /*
       if (lrat) { 
         assert (mini_chain.empty ());
         calculate_minimize_chain (-*i, stack);
@@ -129,7 +128,6 @@ void Internal::minimize_clause () {
         }
         mini_chain.clear ();
       }
-      */
       stats.minimized++;
     } else {
       flags (*j++ = *i).keep = true; // <-- this mutates clause...
@@ -138,14 +136,14 @@ void Internal::minimize_clause () {
   LOG ("minimized %zd literals", (size_t) (clause.end () - j));
   if (j != end)
     clause.resize (j - clause.begin ());
-  /*
+
   clear_minimized_literals ();
   for (auto p = minimize_chain.rbegin (); p != minimize_chain.rend ();
        p++) {
     lrat_chain.push_back (*p);
   }
   minimize_chain.clear ();
-  */
+  
   STOP (minimize);
 }
 
