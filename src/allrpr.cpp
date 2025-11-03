@@ -210,319 +210,59 @@ extern "C" {
 		citten_clause_with_id (citten, id, 1, &unit);
 	}
 
-	// collects reasons necessary for deriving a proof of the learned clause
-	// and feeds them to kitten 
-	//
-	void Internal::allrpr_collect_learn_reasons (int &uip, allrpr_proof_clauses &pcs) {
-		START (allrprcollect);
-		LOG ("ALLRPR COLLECT LEARNED REASONS");
-		assert (conflict);
-		assert (citten);
-		assert (!opts.allrprextra);
-		// add conflict clause. Will finally be falsified by the assumptions
-		feed_reason (pcs, conflict);
-		pcs.is_extra.push_back (0);  // TODO: remove later on
 
-		int64_t added = 1; // number of added clauses
-
-		// Collect necessary clauses by going backwards from the end of the trail
-		// up to the uip. Each "seen" assignments reason is collected.
-		const auto &t = &trail;
-		int i = t->size ();
-		while (i) {
-			int lit = (*t)[--i];
-			Flags &f = flags (lit);
-			if (lit == uip) // enough reasons collected // this somehow may not happen with chrono?
-				break;
-			if (!f.seen)
-					continue;
-
-			Var &v = var (lit);
-
-			// units may be seen but they have decision reasons
-			if (!v.level)
-				continue;
-
-			Clause *reason = v.reason;
-			feed_reason (pcs, reason);
-			pcs.is_extra.push_back (0);  // TODO: remove later on
-			added++;
-		}
-
-		// Also collect relevant unit clause {-lit} for each lit in unit_analyzed.
-		// Without them we would miss some necessary assumptions.
-		for (const auto &lit : unit_analyzed) {
-			// unit clauses do not need to be pushed to pcs.clauses, since we can get
-			// their cadical_id easily once returned from kitten
-			feed_unit_reason (-lit);
-			added++;
-		}
-
-		stats.allrpr.added += added;
-		LOG ("ALLRPR COLLECT LEARNED REASONS added %lld clauses", added);
-		STOP (allrprcollect);
-	}
-
-	// collects additional reasons necessary for deriving a proof of the 
-	// minimized learned clause and feeds them to kitten
-	// Here we misuse the added flag for marking work on the trail
-	//
-	void Internal::allrpr_collect_minimize_reasons(allrpr_proof_clauses &pcs) {
-		START (allrprcollect);
-		LOG ("ALLRPR COLLECT MINIMIZE REASONS");
-		assert (citten);
-		assert (!opts.allrprextra);
-		vector<int> units_flagged;
-		int64_t added = 0; // number of added clauses
-		for (const auto &lit : minimized) {
-			Flags &f = flags (lit);
-			if (f.removable) { // lit is relevant 
-				Var &v = var (lit);
-				Clause *reason = v.reason;
-				feed_reason (pcs, reason);
-				added++;
-				for (const auto &rlit : *reason) { // check for necessary units
-					Flags &rf = flags (rlit);
-					Var &v = var (rlit);
-					if (v.level || rf.added)
-						continue;
-					if (rf.seen)
-						continue;
-					// unit not yet fed to kitten
-					feed_unit_reason (-rlit);
-					added++;
-					rf.added = true; // dont feed units more than once
-					units_flagged.push_back (rlit);
-				}
-			}
-		}
-		for (const auto &lit : units_flagged) {
-			Flags &f = flags (lit);
-			f.added = false;
-		}
-
-		stats.allrpr.added += added;
-		LOG ("ALLRPR COLLECT MINIMIZE REASONS added %lld clauses", added);
-		STOP (allrprcollect);
-	}
-
-	// collect shrink reasons for literals in allrpr_shrunken
-	//
-	void Internal::allrpr_collect_shrink_reasons (allrpr_proof_clauses &pcs) {
-		START (allrprcollect);
-		LOG (allrpr_shrunken, "ALLRPR COLLECT SHRINK REASONS FOR ");
-		assert (citten);
-		assert (!opts.allrprextra);
-		vector<int> worked;
-		int64_t added = 0;
-		for (const auto &lit : allrpr_shrunken) {
-			Flags &f = flags (lit);
-			assert (!f.added && !f.keep);
-			f.added = true; // mark as open path
-			worked.push_back (lit);
-		}
-
-		// go backwards through trail and collect necessary reasons
-		const auto &t = &trail;
-		int i = t->size ();
-		while (i != 0) {
-			int lit = (*t)[--i];
-			Flags &f = flags (lit);
-			if (!f.added || f.keep || f.poison)
-				continue;
-			Var &v = var (lit);
-			if (!v.level) {
-				if (f.seen)
-					continue;
-				feed_unit_reason (lit);
-				added++;
-				f.added = true;
-				worked.push_back (lit);
-			} else {
-				Clause *reason = v.reason;
-				assert (reason && f.removable);
-				feed_reason (pcs, reason);
-				pcs.is_extra.push_back (0);  // TODO: remove later on
-				added++;
-				for (const auto &rlit : *reason) {
-					Flags &f = flags (rlit);
-					f.added = true;
-					worked.push_back (rlit);
-				}
-			}
-		}
-		// clean up added flag for each literal in worked
-		for (const auto &lit : worked) {
-			Flags &f = flags (lit);
-			f.added = false;
-		}
-		allrpr_shrunken.clear ();
-
-		stats.allrpr.added += added;
-		LOG ("ALLRPR COLLECT SHRINK REASONS added %lld clauses", added);
-		STOP (allrprcollect);
-	}
-
-
-	// collect all reasons and all possible propagation candidates (from trail)
-	//
-	void Internal::allrpr_collect_all (allrpr_proof_clauses &pcs) {
-		LOG ("ALLRPR COLLECT ALL");
-		START (allrprcollect);
-		assert (conflict);
-		assert (citten);
-		assert (opts.allrprtrail && opts.allrprextra);
-		assert (opts.allrprtrail);
-		feed_reason (pcs, conflict);
-    	pcs.is_extra.push_back (0);  // TODO: remove later on
-		int64_t added = 1;
-
-		// go backwards through trail
-		const auto &t = &trail;
-		int i = t->size ();	
-		while (i) {
-			int lit = (*t)[--i];
-			Var &v = var (lit);
-			if (!v.level) {
-				feed_unit_reason (lit);
-			}
-			Clause *reason = v.reason;
-			// && !reason->garbage <-- this also leads to problems...
-			if (reason && reason->size) { // weird situations where mock propagator adds size 0 clauses
-				added++;
-				feed_reason (pcs, reason);
-				pcs.is_extra.push_back (0); // TODO: remove later on
-			}
-
-			LOG ("Checking watch list of %d", lit);
-			Watches &ws = watches (lit);
-			const const_watch_iterator eow = ws.end ();
-			watch_iterator j = ws.begin ();
-
-			while (j != eow) {
-				const Watch w = *j++;
-				LOG (w.clause, "Checking");
-				if (w.clause->garbage) {
-					LOG (w.clause, "Skipping garbage");
-					continue;
-				}
-				if (w.clause == reason || w.clause == conflict) {
-					LOG (w.clause, "Skipping %s", w.clause == reason ? "reason" : "conflict");
-					continue;
-				}
-				if (val (w.blit) > 0 && w.blit != lit) {
-					LOG (w.clause, "Skipping doubly satisfied");
-					continue;
-				}
-				// check clause for being a propagation candidate.
-				// i.e. all literals false except for lit, which is satisfied
-				bool relevant = true;
-				for (const auto &l : *w.clause) {
-					if (val (l) < 0)
-						continue;
-					if (l != lit) {
-						LOG ("Skipping due to unfalsified literal %d != %d", l, lit);
-						relevant = false;
-						break;
-					}
-				}
-				if (relevant) {
-					LOG (w.clause, "possibly relevant");
-					added++;
-					feed_reason (pcs, w.clause);
-					pcs.is_extra.push_back (1);  // TODO: remove later on
-				}
-			}
-		}
-		stats.allrpr.added += added;
-		STOP (allrprcollect);
-		LOG ("ALLRPR COLLECT ALL added %lld clauses", added);
-	}
-
-	void Internal::allrpr_collect_all_binary (vector<int> &base, allrpr_proof_clauses &pcs) {
-		LOG ("ALLRPR COLLECT ALL BINARY");
-		int64_t collected = 0;
-		LOG (conflict, "Adding conflict");
-		feed_reason (pcs, conflict);
-		pcs.is_extra.push_back (0);
-		collected++;
-		// add base reasons
-		LOG (base, "Adding base reasons for");
-		for (const int &lit : base) {
-			Var &v = var (lit);
-			if (!v.level) {
-				int64_t id = unit_id (lit);
-				assert (unit_id (lit));
-				collected++;
-				feed_unit_reason (lit);
-			} else if (v.reason) {
-				collected++;
-				feed_reason (pcs, v.reason);
-				pcs.is_extra.push_back (0);
-			} else {
-				LOG ("No reason for %d", lit);
-			}
-		}
-
-		// go backwards through trail
-		const auto &t = &trail;
-		int i = t->size ();	
-		while (i) {
-			int lit = (*t)[--i];
-			
-			LOG ("Checking watch list of %d", lit);
-			Watches &ws = watches (lit);
-			const const_watch_iterator eow = ws.end ();
-			watch_iterator j = ws.begin ();
-			while (j != eow) {
-				const Watch w = *j++;
-				if (!w.binary ())
-					continue; 
-				if (w.clause->garbage)
-					continue;
-				feed_reason (pcs, w.clause); // we need to dereference for the id anyways
-				pcs.is_extra.push_back (1);
-				collected++;
-			}
-		}
-		LOG ("ALLRPR COLLECT ALL BINARY FINISHED COLLECTING %lld clauses", collected);
-		//LOG (ids, "collected: ");
-		stats.allrpr.added += collected;
-	}
-
-	// Initialize work by marking all literals that will be surely true (that are in the implication graph)
+	// try to collect all necessary reasons and propagating literals without using the flags
 	void Internal::allrpr_mark_graph (vector<int> &base, allrpr_proof_clauses &pcs) {
-		LOG ("ALLRPR MARK GRAPH");
+		LOG ("ALLRPR MARK GRAPH V2");
 		START (allrprcollect);
-		// mark learned clause literals as targets for minimization
-		LOG ("Setting learned clause literals as minimization targets...");
+
+		// mark all conflict clause literals negations as true
+		LOG ("Setting negated conflict clause literals to true");
+		for (const int &lit : *conflict) {
+			set_true (-lit, pcs);
+			base.push_back (-lit);
+		}
+		// mark all learned clause literals negations as target
+		LOG ("Setting negated learend clause literals as target");
+		int work = (int) clause.size ();
 		for (const int &lit : clause) {
 			set_target (-lit, pcs);
 		}
-		// go backwards through trail
 		const auto &t = &trail;
 		int i = t->size ();	
-		while (i) {
+		while (work != 0) {
 			int lit = (*t)[--i];
-			assert (!is_true (lit, pcs));
-			assert (!is_true (-lit, pcs));
-			Var &v = var (lit);
-			if (!v.level) { // unit 
-				LOG ("marking unit %d", lit);
-				set_true (lit, pcs);
-				base.push_back (lit);
+			if (!is_true (lit, pcs)) {
+				LOG ("skipping non-marked literal %d", lit);
 				continue;
 			}
-			Flags &f = flags (lit);
-			if (f.seen || f.removable) {
-				LOG ("marking %s %s %d", f.seen ? "seen" : "", f.removable ? "removable" : "", lit);
-				set_true (lit, pcs);
-				base.push_back (lit);
+			if (is_target (lit, pcs)) {
+				LOG ("skipping target literal %d", lit);
+				work--;
+				continue;
+			}
+			Var &v = var (lit);
+			Clause *reason = v.reason;
+			if (!reason)
+				continue;
+			LOG (reason, "looking at %d reason", lit);
+			for (const int &rlit : *reason) {
+				if (rlit == lit) // propagating literal
+					continue;
+				if (is_target (-rlit, pcs) && !is_true (-rlit, pcs)) { // hit a end of the graph
+					LOG ("reached learned clause literal %d", rlit);
+				}
+				if (!is_true (-rlit, pcs)) {
+					LOG ("marking %d as true", -rlit);
+					set_true (-rlit, pcs); // falsified literal, propagating lit
+					base.push_back (-rlit);			
+				}
 			}
 		}
-		LOG (base, "marked");
+		LOG (base, "base:");
 		STOP (allrprcollect);
 	}
+
 
 	void Internal::allrpr_collect_more (vector<int> &base, allrpr_proof_clauses &pcs) {
 		LOG ("ALLRPR COLLECT MORE");
@@ -618,6 +358,7 @@ extern "C" {
 		stats.allrpr.added += collected;
 		STOP (allrprcollect);
 	}
+
 // -------------------------------------------------------------------------- //
 	// Trying to simulate propagation with the different order
 	// 
@@ -731,9 +472,9 @@ extern "C" {
 		unsigned last_learned_id = final_clause.kitten_id;
 		int nlearned = 0;
 		int norig = 0;
-		int extraincore = 0; // TODO: remove later on
-		int extraisred = 0; // TODO: remove later on
-		int extragrternary = 0; // TODO: remove later on
+		int extraincore = 0;
+		int extragrbinary = 0;
+		int extragrternary = 0;
 		for (auto &pc: core) {
 			if (!pc.learned) { // allready proven clause (known to cadical)
 				norig++;
@@ -741,21 +482,13 @@ extern "C" {
 				if (pc.literals.size () == 1) // units are not stored in pcs.reasons
 					continue;
 				bool is_extra = pcs.is_extra[pc.allrpr_id];
-				Clause *cadiclause = pcs.reasons[pc.allrpr_id];
 				if (is_extra) {
-					if (cadiclause->redundant) {
-						LOG (cadiclause, "is redundant extra clause");
-						extraisred++;
-					} else {
-						LOG (cadiclause, "is irredundant extra clause");
-					}
-					if (pc.literals.size () > 3) {
-						LOG (cadiclause, "is extra clause greater than ternary");
+					if (pc.literals.size () > 2)
+						extragrbinary++;
+					if (pc.literals.size () > 3)
 						extragrternary++;
-					}
 					extraincore++;
 				}
-				// TODO: ^^^ remove later on ^^^----------------------------------------
 				continue;
 			} 
 			nlearned++;
@@ -793,9 +526,9 @@ extern "C" {
 		if (extraincore) {
 			stats.allrpr.extraisincore++; // core contains an extra (non-reason) clause
 			stats.allrpr.extracsincore += extraincore; // number of extra clauses in core
-			if (extraisred) { 
-				stats.allrpr.redextraincore++; // core contains a redundant extra clause
-				stats.allrpr.redextras += extraisred;
+			if (extragrbinary) {
+				stats.allrpr.extragrbinaryincore++;
+				stats.allrpr.extragrbinary += extragrbinary;
 			}
 			if (extragrternary) { // extra clause with size > 3 in core
 				stats.allrpr.extragrternaryincore++;
@@ -814,16 +547,18 @@ extern "C" {
 			allrpr_proof_clause &pc = pcs.proof_clauses[i];
 			if (!pc.learned)
 				continue;
+			LOG ("Deleting clause[%lld]", pc.cadical_id);
 			proof->delete_clause (pc.cadical_id, true, pc.literals);
 		}
+		LOG ("ALLRPR DELETE INTERMEDIATE LRAT FINISHED");
 		STOP (allrprlrat);
 	} 
 
+ 
 	// Reconstructs a LRAT chain for the learned clause in internal->clause.
 	// 
 	void Internal::allrpr_kitten_catch_rat (int &uip, allrpr_proof_clauses &pcs) {
 		START (allrprsolve);
-		assert (lrat_chain.empty ());
 		assert (citten);
 	
 		// Kitten is now fed with enough clauses.
@@ -839,16 +574,11 @@ extern "C" {
     LOG ("KITTEN ASSUME UIP %d", uip);
     kitten_assume_signed (citten, uip); // Assume uip last (not not uip)
 
-    #ifdef LOGGING
-  	if (opts.log)
-  		//kitten_set_logging (citten);
-  	#endif
+    //#ifdef LOGGING
+  	//if (opts.log)
+  	//	kitten_set_logging (citten);
+  	//#endif
 
-    // shuffle assumptions for the possibility of a smaller core failing clause
-  	// this got moved because of collect more.
-    // if (opts.allrprshufflea) {
-    //	kitten_shuffle_assumptions (citten);
-    //}
     if (opts.allrprshufflec) {
     	kitten_shuffle_clauses (citten);
     }
@@ -859,30 +589,10 @@ extern "C" {
 		// Now compute the clausal core and trace it. This will provide resolution
 		// chains, which can be used for deriving an LRAT proof.
 		kitten_compute_clausal_core (citten, nullptr);
-		LOG (trail, "trail:"); // TODO: remove later on
 		kitten_trace_core (citten, &pcs, extract_clause_from_kitten);
-		STOP (allrprsolve);
-		
-		allrpr_build_lrat (pcs);
-		vector<int> &klause = 
-					pcs.proof_clauses[pcs.proof_clauses.size () - 1].literals;
-		const size_t old_size = clause.size ();
-		const size_t new_size = klause.size ();
-		if (old_size > new_size) {
-			LOG (clause, "Successful further minimization of");
-			clause = std::move(klause);
-			//clause.clear ();
-			//for (const int &lit : pcs.proof_clauses[pcs.proof_clauses.size () - 1].literals) {
-			//	clause.push_back (lit);
-			//}
-			LOG (clause, "to");	
-			stats.allrpr.nminimized++;
-			stats.allrpr.sminimized += old_size - new_size;
-		}
 		stats.allrpr.kittencalls++;
-		stats.allrpr.slearnedlits += (int64_t) new_size;
-		// this is just for checking, how this can happen. Comment out later!
-		//assert (clause.size () == pcs.proof_clauses[pcs.proof_clauses.size () - 1].literals.size ());
+		STOP (allrprsolve);
 	}
+
 
 }	

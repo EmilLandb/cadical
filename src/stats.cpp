@@ -80,7 +80,7 @@ void Stats::print (Internal *internal) {
      PRT ("  intermediates  %15" PRId64 "   %10.2f    per with intermediates",
           stats.allrpr.sintermediate,
           relative (stats.allrpr.sintermediate, stats.allrpr.nintermediate));
-     PRT ("  learnedlits    %15" PRId64 "   %10.2f    per kitten call",
+     PRT ("  learnedlits    %15" PRId64 "   %10.2f    per kitten call (pre kitten)",
           stats.allrpr.slearnedlits,
           relative (stats.allrpr.slearnedlits, stats.allrpr.kittencalls));
      PRT ("  furthermini    %15" PRId64 "   %10.2f %%  of kitten calls",
@@ -92,6 +92,12 @@ void Stats::print (Internal *internal) {
      PRT ("  improvedglue   %15" PRId64 "   %10.2f %%  of further minimizations",
           stats.allrpr.nimprovedglue,
           percent (stats.allrpr.nimprovedglue, stats.allrpr.nminimized));
+     PRT ("  improvedtier2  %15" PRId64 "   %10.2f %%  of glue improvements",
+          stats.allrpr.liftedtier2,
+          percent (stats.allrpr.liftedtier2, stats.allrpr.nimprovedglue));
+     PRT ("  improvedtier1  %15" PRId64 "   %10.2f %%  of glue improvements",
+          stats.allrpr.liftedtier1,
+          percent (stats.allrpr.liftedtier1, stats.allrpr.nimprovedglue));
      PRT ("  totalglue      %15" PRId64 "   %10.2f    per glue improvement",
           stats.allrpr.simprovedglue,
           relative (stats.allrpr.simprovedglue, stats.allrpr.nimprovedglue));
@@ -101,30 +107,18 @@ void Stats::print (Internal *internal) {
      PRT ("  extras         %15" PRId64 "   %10.2f    per core with extra",
           stats.allrpr.extracsincore,
           relative (stats.allrpr.extracsincore, stats.allrpr.extraisincore));
-     PRT ("  redextraincore %15" PRId64 "   %10.2f %%  of cores with extra",
-          stats.allrpr.redextraincore,
-          percent (stats.allrpr.redextraincore, stats.allrpr.extraisincore));
-     PRT ("  redextras      %15" PRId64 "   %10.2f    per core with red extra",
-          stats.allrpr.redextras,
-          relative (stats.allrpr.redextras, stats.allrpr.redextraincore));
+     PRT ("  corewextra>2   %15" PRId64 "   %10.2f %%  of core with extra",
+          stats.allrpr.extragrbinaryincore,
+          percent (stats.allrpr.extragrbinaryincore, stats.allrpr.extraisincore));
+     PRT ("  extras>2       %15" PRId64 "   %10.2f    per core with extra",
+          stats.allrpr.extragrbinary,
+          relative (stats.allrpr.extragrbinary, stats.allrpr.extraisincore));
      PRT ("  corewextra>3   %15" PRId64 "   %10.2f %%  of core with extra",
           stats.allrpr.extragrternaryincore,
           percent (stats.allrpr.extragrternaryincore, stats.allrpr.extraisincore));
      PRT ("  extras>3       %15" PRId64 "   %10.2f    per core with extra",
           stats.allrpr.extragrternary,
           relative (stats.allrpr.extragrternary, stats.allrpr.extraisincore));
-     PRT ("  shrink->kitten %15" PRId64 "   %10.2f %%  of kitten calls",
-          stats.allrpr.kittenaftershrink,
-          percent (stats.allrpr.kittenaftershrink, stats.allrpr.kittencalls));
-     PRT ("  shrink->mini   %15" PRId64 "   %10.2f %%  of further minimizations",
-          stats.allrpr.miniaftershrink,
-          percent (stats.allrpr.miniaftershrink, stats.allrpr.nminimized));
-     PRT ("  shrink->glue   %15" PRId64 "   %10.2f %%  of glue improvements",
-          stats.allrpr.glueaftershrink,
-          percent (stats.allrpr.glueaftershrink, stats.allrpr.nimprovedglue));
-     PRT ("  totshrinkglue  %15" PRId64 "   %10.2f    per shrink->glue",
-          stats.allrpr.sglueaftershrink,
-          relative (stats.allrpr.sglueaftershrink, stats.allrpr.glueaftershrink));
   }
   if (all || stats.blocked) {
     PRT ("blocked:         %15" PRId64

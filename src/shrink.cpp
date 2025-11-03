@@ -468,14 +468,11 @@ void Internal::shrink_and_minimize_clause () {
         assert (j < old_clause_lrat.size ());
         assert (mini_chain.empty ());
         if (clause[j] != old_clause_lrat[j]) {
-          allrpr_shrunken.push_back (-old_clause_lrat[j]);
-          /*
           calculate_minimize_chain (-old_clause_lrat[j], stack);
           for (auto p : mini_chain) {
             minimize_chain.push_back (p);
           }
           mini_chain.clear ();
-          */
         }
       }
       if (clause[j] == uip0) {
@@ -498,7 +495,6 @@ void Internal::shrink_and_minimize_clause () {
   stats.minishrunken += total_minimized;
   STOP (shrink);
   
-  /*
   START (minimize);
   clear_minimized_literals ();
   for (auto p = minimize_chain.rbegin (); p != minimize_chain.rend (); p++) {
@@ -506,7 +502,6 @@ void Internal::shrink_and_minimize_clause () {
   }
   minimize_chain.clear ();
   STOP (minimize);
-  */
 }
 
 } // namespace CaDiCaL
