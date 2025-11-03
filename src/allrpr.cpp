@@ -76,6 +76,7 @@ namespace CaDiCaL {
 
 	void Internal::allrpr_shuffle(vector<int> &vec) {
 		LOG (vec ,"shuffling");
+		START (allrprshuffle);
 		assert (vec.size ());
 		Random random;
     const int n = (int) vec.size ();
@@ -83,6 +84,7 @@ namespace CaDiCaL {
     	int j = random.pick_int (0, n - 1);
     	std::swap(vec[i], vec[j]);
     }
+    STOP (allrprshuffle);
     LOG (vec, "post shuffle:");
 	}
 
@@ -93,6 +95,7 @@ namespace CaDiCaL {
 	// Removing the mentioned uip literals will definitely improve the glue 
 	// of the clause
 	void Internal::allrpr_sort_shrunken() {
+		START (allrprreorder);
 		const int size = (int) clause.size ();
 		if (size < 3) 
 			return;
@@ -129,7 +132,7 @@ namespace CaDiCaL {
 		for (size_t i = non_uips.size(); i < (size_t) size; i++)
 			clause[i] = slice_uips[i - non_uips.size()];
 		LOG (clause, "sorted clause:");
-		return;
+		STOP (allrprreorder);
 	}
 
 
@@ -402,101 +405,6 @@ extern "C" {
 		stats.allrpr.added += collected;
 		STOP (allrprcollect);
 	}
-
-// -------------------------------------------------------------------------- //
-	// Trying to simulate propagation with the different order
-	// 
-	void Internal::allrpr_collect_prop (vector<int> &base, allrpr_proof_clauses &pcs) {
-		LOG ("ALLRPR COLLECT PROP");
-		START (allrprcollect);
-		int64_t collected = 0;
-		// set up minimization target marks
-		for (const int &ll : clause) {
-			set_target (-ll, pcs); // implication graph node
-		}
-		vector<int> prop_stack;
-		vector<int> mini_trail;
-		for (const int &ll : clause) { 
-			//unset_target (-ll, pcs); // remove targeting 
-			set_true (-ll, pcs);     // assume
-			set_worked (-ll, pcs);
-			prop_stack.push_back (-ll);
-
-			// Now look in prop stack for binaries
-			while (!prop_stack.empty ()) {
-				const int lit = prop_stack.back ();
-				prop_stack.pop_back ();
-				mini_trail.push_back (lit);
-				LOG ("Checking watch list of %d for binary and ternary clauses", -lit);
-				Watches &ws = watches (-lit);
-				const const_watch_iterator eow = ws.end ();
-				watch_iterator i = ws.begin ();
-				// First find all binary clauses
-				while (i != eow) {
-					const Watch w = *i++;
-					if (w.clause->garbage)
-						continue;
-					if (w.binary ()) {
-						if (is_target (w.blit, pcs)) {
-							LOG (w.clause, "Found minimization path for %d through", w.blit);
-							LOG (mini_trail, "minimization trail:");
-						} else
-							LOG (w.clause, "Found");
-						if (!is_true (w.blit, pcs)) {
-							LOG ("marking %d as true and pushing to prop_stack", w.blit);
-							set_true (w.blit, pcs);
-							prop_stack.push_back (w.blit);
-							//mini_trail.push_back (w.blit);
-							collected++;
-						} else {
-							LOG ("already added %d to prop_stack", w.blit);
-						}	
-					} 
-					else if (w.size == 3) {
-						LOG (w.clause, "Checking ternary");
-						int found_possible = 0;
-						bool satisfied = false;
-						for (const int &tl : *w.clause) {
-							if (is_true (tl, pcs)) {
-								satisfied = true;
-								break;
-							}
-							if (is_true (-tl, pcs)) // i.e. tl is falsified, holds for at least 'lit'
-								continue; 
-							if (!found_possible) {
-								LOG ("possible new propagation for %d", tl);
-								found_possible = tl;
-							} else {
-								LOG ("second non-falsified %d", tl);	
-								found_possible = 0; // this should work since we can only set found possible to tl once and only once back to 0	
-							} 
-						}
-						if (found_possible && !satisfied) {
-							if (is_target (found_possible, pcs)) {
-								LOG (w.clause, "Found minimization path for %d through", found_possible);	
-								LOG (mini_trail, "minimization trail:");
-							}
-							LOG ("marking %d as true and pushing to prop_stack", found_possible);
-							set_true (found_possible, pcs);
-							prop_stack.push_back (found_possible);
-							collected++;
-						} else {
-							LOG (w.clause, "No new propagations found for");
-						}
-					} 
-					//feed_reason (pcs, w.clause);
-					//pcs.is_extra.push_back (1);
-				}
-			}
-			// set learned lit ll as target again
-			set_target (-ll, pcs);
-			set_false (-ll, pcs);
-			mini_trail.clear ();
-		}
-		STOP (allrprcollect);
-		LOG ("ALLRPR COLLECT MORE FINISHED COLLECTING %lld clauses", collected);
-	}
-// -------------------------------------------------------------------------- //
 
 	void Internal::allrpr_build_lrat (allrpr_proof_clauses &pcs) {
 		LOG ("ALLRPR BUILD LRAT");

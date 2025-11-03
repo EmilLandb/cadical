@@ -1203,18 +1203,11 @@ void Internal::analyze () {
   // can calculate it pretty easily and even better the same algorithm works
   // for both shrinking and minimization.
 
-  // ALLRPR 
-  allrpr_proof_clauses allrpr_pcs;
-  if (lrat) {
-    allrpr_pcs.marks.resize (2 * internal->max_var + 3);
-    allrpr_pcs.internal = this;
-    allrpr_init_citten ();
-  }
-  
+
   // Minimize the 1st UIP clause as pioneered by Niklas Soerensson in
   // MiniSAT and described in our joint SAT'09 paper.
   //
-  const unsigned old_size = clause.size (); // For determining whether shrinking was successful
+  const int old_size = (int) clause.size (); // For determining whether shrinking was successful
   if (size > 1) {
     if (opts.shrink) {  
       shrink_and_minimize_clause ();
@@ -1251,7 +1244,12 @@ void Internal::analyze () {
   // reverse lrat_chain. We could probably work with reversed iterators
   // (views) to be more efficient but we would have to distinguish in proof
   //
+  // ALLRPR 
+  //
+  START (allrpr);
+  allrpr_proof_clauses allrpr_pcs;
   bool kitten_successful_mini =  false;
+
   if (lrat) {
     const bool was_tier1 = glue <= tier1[false];
     const bool was_tier2 = glue <= tier2[false]; 
@@ -1272,8 +1270,11 @@ void Internal::analyze () {
       if (opts.allrprfiltershrink) {
         stats.allrpr.kittenaftershrink++;
       }
+
       allrpr_pcs.internal = this;
-      allrpr_init_citten ();
+      allrpr_pcs.marks.resize (2 * internal->max_var + 3);
+      if (!citten)
+        allrpr_init_citten ();
       
       if (opts.allrprshufflea)
         allrpr_shuffle (clause);
@@ -1291,8 +1292,8 @@ void Internal::analyze () {
 
       // Try to minimize with kitten
       allrpr_kitten_catch_rat (uip, allrpr_pcs);
-      allrpr_reset_citten ();  // TODO: what is the correct choice ? It doesn't seem to make a difference on runtime
-                               // kitten_clear (citten); 
+      //allrpr_reset_citten ();  // TODO: what is the correct choice ? It doesn't seem to make a difference on runtime
+      kitten_clear (citten); 
 
       // Find out whether further minimization was achieved
       vector<int> &klause = 
@@ -1377,6 +1378,7 @@ void Internal::analyze () {
       }
     }  
   }
+  STOP (allrpr);
 
   // Determine back-jump level, learn driving clause, backtrack and assign
   // flipped 1st UIP literal.

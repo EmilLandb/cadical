@@ -44,8 +44,11 @@ struct Internal;
 #endif
 
 #define PROFILES \
+  PROFILE (allrpr, 3) \
   PROFILE (allrprcollect, 3) \
   PROFILE (allrprlrat, 3) \
+  PROFILE (allrprreorder, 3) \
+  PROFILE (allrprshuffle, 3) \
   PROFILE (allrprsolve, 3) \
   PROFILE (analyze, 3) \
   MROFILE (analyzestable, 4) \

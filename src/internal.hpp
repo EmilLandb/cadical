@@ -775,7 +775,6 @@ struct Internal {
   inline void feed_unit_reason (int unit); // just adding unit clause to kitten
   void allrpr_mark_graph (vector<int> &base, allrpr_proof_clauses &pcs);
   void allrpr_collect_more (vector<int> &cleanmarked, allrpr_proof_clauses &pcs); // collect more but not all
-  void allrpr_collect_prop (vector<int> &base, allrpr_proof_clauses &pcs);
   void allrpr_build_lrat (allrpr_proof_clauses &pcs); // builds LRAT proof from collected kitten core
   void allrpr_delete_intermediate_lrat (allrpr_proof_clauses &pcs); // deletes intermediate LRAT proof steps 
   void allrpr_kitten_catch_rat (int &uip, allrpr_proof_clauses &pcs); // LRAT chain from kitten
