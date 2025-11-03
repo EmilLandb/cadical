@@ -392,6 +392,7 @@ struct Stats {
     int64_t sglueaftershrink = 0; // total glue improvements after further minimization after successful shrinking
     int64_t liftedtier1 = 0; // number of times a clause got lifted to tier 1 by further minimization
     int64_t liftedtier2 = 0; // number of times a clause got lifted to tier 2 by further minimization
+    int64_t uipremoved = 0; // number of times the uip literal got removed from a clause
   } allrpr;
 
   Stats ();

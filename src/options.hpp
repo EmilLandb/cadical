@@ -22,9 +22,10 @@
 /*      NAME         DEFAULT, LO, HI,O,P,R, USAGE */ \
 \
 OPTION( allrprfiltershrink,0,  0,  1,0,0,1, "only try further minimization if shrink was successful") \
-OPTION( allrprgluethresh,  1,  0,  1,0,0,1, "glue threshold for trying kitten minimization (predicate likely_to_be_kept)") \
+OPTION( allrprgluethresh,  0,  0,  1,0,0,1, "glue threshold for trying kitten minimization (predicate likely_to_be_kept)") \
 OPTION( allrprorder,       0,  0,  1,0,0,1, "only collect propagating wrt. trail") \
 OPTION( allrprreverse,     0,  0,  1,0,0,1, "sort clause in descending trail order") \
+OPTION( allrprshrinkorder, 0,  0,  1,0,0,1, "sort clause by descending trail order with slice uips in the back") \
 OPTION( allrprshufflea,    1,  0,  1,0,0,1, "shuffle assumptions") \
 OPTION( allrprshufflec,    1,  0,  1,0,0,1, "shuffle clauses") \
 OPTION( arena,             1,  0,  1,0,0,1, "allocate clauses in arena") \

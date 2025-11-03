@@ -101,6 +101,9 @@ void Stats::print (Internal *internal) {
      PRT ("  totalglue      %15" PRId64 "   %10.2f    per glue improvement",
           stats.allrpr.simprovedglue,
           relative (stats.allrpr.simprovedglue, stats.allrpr.nimprovedglue));
+     PRT ("  uiplitremoved  %15" PRId64 "   %10.2f %%  of further minimizations",
+          stats.allrpr.uipremoved,
+          percent (stats.allrpr.uipremoved, stats.allrpr.nminimized));
      PRT ("  coreswithextra %15" PRId64 "   %10.2f %%  of kitten calls",
           stats.allrpr.extraisincore,
           percent (stats.allrpr.extraisincore, stats.allrpr.kittencalls));

@@ -86,6 +86,52 @@ namespace CaDiCaL {
     LOG (vec, "post shuffle:");
 	}
 
+	// Sort the successfully shrunken clause in descending trail order
+	// and then move literals that are uips of slices to the back
+	// Idea: Latest assumed literals have the highest chance of being implied 
+	// by others in kitten and can then be removed.
+	// Removing the mentioned uip literals will definitely improve the glue 
+	// of the clause
+	void Internal::allrpr_sort_shrunken() {
+		const int size = (int) clause.size ();
+		if (size < 3) 
+			return;
+		LOG ("ALLRPR SORT SHRUNKEN");
+		minimize_sort_clause ();
+		reverse (clause.begin (), clause.end ());
+
+		vector<int> slice_uips;
+		vector<int> non_uips = {clause[0]}; // keep actual uip at the front
+
+		int prev_lvl = var (clause[0]).level;
+		int this_lvl = var (clause[1]).level;
+		int next_lvl;
+		for (auto i = 1; i < size - 1; i++) {
+			next_lvl = var (clause[i+1]).level;
+			if (this_lvl == prev_lvl || this_lvl == next_lvl) { // no slice uip
+				non_uips.push_back (clause[i]);
+			} else {
+				slice_uips.push_back (clause[i]);
+			}
+
+			prev_lvl = this_lvl;
+			this_lvl = next_lvl;
+		}
+		// process last
+		if (this_lvl != prev_lvl)
+			slice_uips.push_back (clause[size-1]);
+		else 
+			non_uips.push_back (clause[size-1]);
+
+
+		for (size_t i = 0; i < non_uips.size (); i++)
+			clause[i] = non_uips[i];
+		for (size_t i = non_uips.size(); i < (size_t) size; i++)
+			clause[i] = slice_uips[i - non_uips.size()];
+		LOG (clause, "sorted clause:");
+		return;
+	}
+
 
 	bool Internal::clause_is_qualified (Clause *c, int &prop_lit, allrpr_proof_clauses &pcs) {
 		LOG (c, "Checking qualification of");
@@ -280,8 +326,6 @@ extern "C" {
 		for (const int &lit : base) {
 			Var &v = var (lit);
 			if (!v.level) {
-				int64_t id = unit_id (lit);
-				assert (unit_id (lit));
 				collected++;
 				feed_unit_reason (lit);
 				set_reason_added (lit, pcs);

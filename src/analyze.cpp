@@ -1279,11 +1279,12 @@ void Internal::analyze () {
         allrpr_shuffle (clause);
       else if (opts.allrprorder) // sort clause by increasing trail position
         minimize_sort_clause ();
+      else if (opts.allrprshrinkorder)
+        allrpr_sort_shrunken ();
       else if (opts.allrprreverse) { // sort clause by decreasing trail position
         minimize_sort_clause ();
         reverse (clause.begin (), clause.end ());
       }
-
       vector<int> base; // Literals that will eventually be true given the necessary reasons and the learned clause
       allrpr_mark_graph (base, allrpr_pcs);
       allrpr_collect_more (base, allrpr_pcs);
@@ -1320,6 +1321,10 @@ void Internal::analyze () {
           MSORT (opts.radixsortlim, clause.begin (), clause.end (),
                  analyze_trail_negative_rank (this), analyze_trail_larger (this));
           LOG ("updating uip from %d to %d", uip, -clause[0]);
+          if (uip != -clause[0]) {
+            LOG ("uip removed!");
+            stats.allrpr.uipremoved++;
+          }
           uip = -clause[0];
           // glue might have changed
           const int old_glue = glue;

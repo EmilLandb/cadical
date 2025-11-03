@@ -769,6 +769,7 @@ struct Internal {
   void allrpr_init_citten (); 
   void allrpr_reset_citten ();
   void allrpr_shuffle(vector<int> &clause); 
+  void allrpr_sort_shrunken();
   inline bool clause_is_qualified (Clause *c, int &nonfalse, allrpr_proof_clauses &pcs);
   inline void feed_reason (allrpr_proof_clauses &pcs, Clause *reason); // book keeping and adding clause to kitten
   inline void feed_unit_reason (int unit); // just adding unit clause to kitten
