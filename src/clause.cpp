@@ -107,6 +107,7 @@ Clause *Internal::new_clause (bool red, int glue) {
   c->flushed = false;
   c->vivified = false;
   c->vivify = false;
+  c->added = false;
   c->used = 0;
 
   c->glue = glue;

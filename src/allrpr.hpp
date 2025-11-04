@@ -26,5 +26,12 @@ namespace CaDiCaL {
 		std::vector<signed char> marks; // own marks for literals
 	};
 
+
+	// Test for retry
+	struct allrpr_mini_pcs {
+		Internal *internal;
+		std::vector<int> final_clause;
+	};
+
 }
 #endif

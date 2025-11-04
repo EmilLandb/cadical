@@ -24,6 +24,7 @@
 OPTION( allrprfiltershrink,0,  0,  1,0,0,1, "only try further minimization if shrink was successful") \
 OPTION( allrprgluethresh,  0,  0,  1,0,0,1, "glue threshold for trying kitten minimization (predicate likely_to_be_kept)") \
 OPTION( allrprorder,       0,  0,  1,0,0,1, "only collect propagating wrt. trail") \
+OPTION( allrprretries,     0,  0,1e3,0,0,1, "number of retries made per kitten call") \
 OPTION( allrprreverse,     0,  0,  1,0,0,1, "sort clause in descending trail order") \
 OPTION( allrprshrinkorder, 0,  0,  1,0,0,1, "sort clause by descending trail order with slice uips in the back") \
 OPTION( allrprshufflea,    1,  0,  1,0,0,1, "shuffle assumptions") \

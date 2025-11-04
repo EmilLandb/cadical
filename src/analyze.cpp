@@ -1190,6 +1190,7 @@ void Internal::analyze () {
   int size = (int) clause.size ();
   int glue = (int) levels.size () - 1; // changed from const. Needs update after allrpr
   LOG (clause, "1st UIP size %d and glue %d clause", size, glue);
+  // TODO: Should this be postponed to after kitten minimization?
   UPDATE_AVERAGE (averages.current.glue.fast, glue);
   UPDATE_AVERAGE (averages.current.glue.slow, glue);
   stats.learned.literals += size;
@@ -1241,19 +1242,19 @@ void Internal::analyze () {
   stats.binaries += (size == 2);
   UPDATE_AVERAGE (averages.current.size, size);
 
+  STOP (analyze);
   // reverse lrat_chain. We could probably work with reversed iterators
   // (views) to be more efficient but we would have to distinguish in proof
   //
   // ALLRPR 
   //
-  START (allrpr);
   allrpr_proof_clauses allrpr_pcs;
   bool kitten_successful_mini =  false;
 
   if (lrat) {
     const bool was_tier1 = glue <= tier1[false];
     const bool was_tier2 = glue <= tier2[false]; 
-    const bool try_kitten_mini = (!opts.allrprgluethresh || glue <= tier2[false] + 1) 
+    const bool try_kitten_mini = (!opts.allrprgluethresh || glue <= tier2[false] + 1)
                                  &&
                                  (!opts.allrprfiltershrink || old_size > size)
                                  && size > 1;
@@ -1275,7 +1276,6 @@ void Internal::analyze () {
       allrpr_pcs.marks.resize (2 * internal->max_var + 3);
       if (!citten)
         allrpr_init_citten ();
-      
       if (opts.allrprshufflea)
         allrpr_shuffle (clause);
       else if (opts.allrprorder) // sort clause by increasing trail position
@@ -1287,32 +1287,56 @@ void Internal::analyze () {
         reverse (clause.begin (), clause.end ());
       }
       vector<int> base; // Literals that will eventually be true given the necessary reasons and the learned clause
+
       allrpr_mark_graph (base, allrpr_pcs);
-      allrpr_collect_more (base, allrpr_pcs);
+      //allrpr_collect_more (base, allrpr_pcs);
+      allrpr_collect_more_dist_filter (base, allrpr_pcs); // TODO: ...
 
-      // Try to minimize with kitten
+      const size_t post_shrink_size = clause.size ();
+
+      // Try to minimize with kitten (including retries)
+      allrpr_mini_pcs mini_pcs;
+      mini_pcs.internal = this;
+      vector<int> &final = mini_pcs.final_clause;
+      kitten_track_antecedents (citten);
+      int minimized_again = -1; // first minimization isn't accounted for here
+      for (int i = 0; i < opts.allrprretries; i++) {
+        if (clause.size () == 0)
+          break;
+        allrpr_kitten_attempt_minimize (mini_pcs, i);
+        LOG (mini_pcs.final_clause, "clause after attempt %i", i);
+        if (mini_pcs.final_clause.size () < clause.size ()) { // successful further further
+          minimized_again++;
+        }
+        if (!final.empty ())
+          clause = mini_pcs.final_clause;
+      }
+      // now finally with extracting the core. TODO: only if minimization was successful
       allrpr_kitten_catch_rat (uip, allrpr_pcs);
-      //allrpr_reset_citten ();  // TODO: what is the correct choice ? It doesn't seem to make a difference on runtime
-      kitten_clear (citten); 
-
+      
       // Find out whether further minimization was achieved
       vector<int> &klause = 
           allrpr_pcs.proof_clauses[allrpr_pcs.proof_clauses.size () - 1].literals;
-      const size_t post_shrink_size = clause.size ();
       const size_t new_size = klause.size ();
-
+      if (new_size < clause.size ()) // successful further further
+        minimized_again++;
+      if (minimized_again > 0) {
+        stats.allrpr.withminiagain++; 
+        stats.allrpr.miniagain += minimized_again;
+      }
       if (post_shrink_size > new_size) { // minimization achieved, build own LRAT chain
         kitten_successful_mini = true;
-        LOG (clause, "Further minimization of");
         clause = std::move(klause);
-        LOG (clause, "                     to");
+        LOG (clause, "Further minimization to");
+
+        allrpr_update_extra_stats (allrpr_pcs);
 
         stats.allrpr.nminimized++;
         stats.allrpr.sminimized += post_shrink_size - new_size;
-        stats.allrpr.slearnedlits += (int64_t) old_size;
+        stats.allrpr.slearnedlits += (int64_t) post_shrink_size;
         if (opts.allrprfiltershrink)
             stats.allrpr.miniaftershrink++;
-
+        
         lrat_chain.clear ();
         unit_chain.clear ();
 
@@ -1322,10 +1346,6 @@ void Internal::analyze () {
           MSORT (opts.radixsortlim, clause.begin (), clause.end (),
                  analyze_trail_negative_rank (this), analyze_trail_larger (this));
           LOG ("updating uip from %d to %d", uip, -clause[0]);
-          if (uip != -clause[0]) {
-            LOG ("uip removed!");
-            stats.allrpr.uipremoved++;
-          }
           uip = -clause[0];
           // glue might have changed
           const int old_glue = glue;
@@ -1376,9 +1396,11 @@ void Internal::analyze () {
         unit_chain.clear ();
         reverse (lrat_chain.begin (), lrat_chain.end ());
       }
+      //allrpr_reset_citten ();  // TODO: what is the correct choice ? It doesn't seem to make a difference on runtime
+      kitten_clear (citten); 
     }  
   }
-  STOP (allrpr);
+  START (analyze);
 
   // Determine back-jump level, learn driving clause, backtrack and assign
   // flipped 1st UIP literal.

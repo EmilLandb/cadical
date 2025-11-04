@@ -10,6 +10,7 @@ namespace CaDiCaL {
 	constexpr signed char TARGET = 1 << 1;
 	constexpr signed char WORKED = 1 << 2;
 	constexpr signed char REASON_ADDED = 1 << 3;
+	constexpr signed char BASE = 1 << 4;
 
 	signed char &Internal::allrpr_mark (int lit, allrpr_proof_clauses &pcs) {
 		assert (internal->vlit (lit) < pcs.marks.size ());
@@ -36,6 +37,10 @@ namespace CaDiCaL {
 		return allrpr_mark (lit, pcs) & REASON_ADDED; 
 	}
 
+	inline bool Internal::is_base (int lit, allrpr_proof_clauses &pcs) {
+		return allrpr_mark (lit, pcs) & BASE; 
+	}
+
 	inline void Internal::set_true (int lit, allrpr_proof_clauses &pcs)   {
 	 allrpr_mark (lit, pcs) |= TRUE; 
 	}
@@ -58,6 +63,10 @@ namespace CaDiCaL {
 
 	inline void Internal::set_reason_added (int lit, allrpr_proof_clauses &pcs) {
 	 allrpr_mark (lit, pcs) |= REASON_ADDED; 
+	}
+
+	inline void Internal::set_base (int lit, allrpr_proof_clauses &pcs) {
+	 allrpr_mark (lit, pcs) |= BASE; 
 	}
 
 	// ---------------------------------------------------------------------------
@@ -97,8 +106,10 @@ namespace CaDiCaL {
 	void Internal::allrpr_sort_shrunken() {
 		START (allrprreorder);
 		const int size = (int) clause.size ();
-		if (size < 3) 
+		if (size < 3) {
+			STOP (allrprreorder);
 			return;
+		}
 		LOG ("ALLRPR SORT SHRUNKEN");
 		minimize_sort_clause ();
 		reverse (clause.begin (), clause.end ());
@@ -148,7 +159,7 @@ namespace CaDiCaL {
 			return false;
 		}
 
-		// A clause would propagate, if it only non-false literal has the highest
+		// A clause would propagate, if its only non-false literal has the highest
 		// trail position among literals in the clause
 		int highest_trail = -1;
 		for (const int &lit : *c) {
@@ -178,6 +189,62 @@ namespace CaDiCaL {
 		}
 		return true;
 	}
+
+
+	// Clauses with more than 
+	// One non base lit ==> dist 1 
+	// Two non base lits ==> dist 2
+	// ...
+	// Try with dist > 2 as a filter: if there are more than two non base lits mark as added but dont add
+	// Try with dist > 3 as a filter: ...
+	/*
+	bool Internal::clause_is_qualified_V2 (Clause *c, int &prop_lit, allrpr_proof_clauses &pcs) {
+		LOG (c, "Checking qualification of");
+		assert (!prop_lit);
+		if (c->added)
+			LOG (c, "Not qualfied already added");
+			return false;
+		if (c->garbage) {
+			LOG (c, "Not qualified garbage");
+			return false;
+		}
+		if (c == conflict) {
+			LOG (c, "Not qualified conflict");
+			return false;
+		}
+		int nblits = 0; // number of literals that are not in base
+
+		for (const int &lit : *c) {
+			if (!is_base (lit, pcs))
+				nblits++;
+		}
+		if (nblits > 3) {
+			return false;
+		}
+		for (const int &lit : *c) {
+			LOG ("checking lit %d", lit);
+			if (!is_base (lit, pcs)) {
+
+				nblits++;
+			}
+			if (is_false (lit, pcs)) { // literal is falsified and (in the implication graph or implied)
+				LOG ("lit %d falsity implied", lit);
+				continue;
+			}
+			if (prop_lit) {
+				LOG ("Not qualified due to %d being the second non-marked/non-false literal", -lit);
+				return false;
+			}
+			prop_lit = lit; // This may propagate, if it is the only non-false literal
+		}
+		if (!prop_lit) { // c may be completely falsified
+			LOG ("Qualified as possible conflict");
+			return true;
+		}
+		return true;
+
+	}
+	*/
 
 extern "C" {
 
@@ -228,20 +295,32 @@ extern "C" {
 				pc.chain.push_back (*(p - 1)); // revert chain
 			}
 		}
-
-	#ifdef LOGGING
-  	if (learned) {
-    	LOG (pc.literals, "traced learned");
-  	}
-    else if (pc.literals.size () == 1)
-    	LOG (pc.literals, "traced original unit[%lld]", pc.cadical_id);
-  	else {
-    	assert (pc.allrpr_id < reasons.size ());
-    	LOG (reasons[allrpr_id], "traced%s", pcs->is_extra[pc.allrpr_id] ? " extra" : ""); // TODO: remove extra stuff later on
-  	}
-	#endif
   	core.push_back (pc);
 	}
+
+
+	// Call back for attempt minimize
+	static void get_final_from_core (void *state, bool learned, 
+																	 size_t clause_size, const unsigned *elits) {
+		if (!learned) {
+			return;
+		}
+
+		allrpr_mini_pcs *mini_pcs = (allrpr_mini_pcs *) state;
+		Internal *internal = mini_pcs->internal;
+		std::vector<int> &final = mini_pcs->final_clause;
+		
+		final.clear ();
+
+		const unsigned *end = elits + clause_size;
+		for (const unsigned *p = elits; p != end; p++) {
+			final.push_back (internal->citten2lit (*p));
+		}
+	#ifdef LOGGING
+		LOG (final, "learned");
+	#endif
+	}
+
 } // end extern "C"
 
 	
@@ -269,6 +348,8 @@ extern "C" {
 		LOG ("Setting negated conflict clause literals to true");
 		for (const int &lit : *conflict) {
 			set_true (-lit, pcs);
+			set_base (lit, pcs); // TODO: remove ?
+			set_base (-lit, pcs); // TODO: remove ?
 			base.push_back (-lit);
 		}
 		// mark all learned clause literals negations as target
@@ -276,6 +357,8 @@ extern "C" {
 		int work = (int) clause.size ();
 		for (const int &lit : clause) {
 			set_target (-lit, pcs);
+			set_base (-lit, pcs); // TODO: remove ?
+			set_base (lit, pcs); // TODO: remove ?
 		}
 		const auto &t = &trail;
 		int i = t->size ();	
@@ -304,6 +387,9 @@ extern "C" {
 				if (!is_true (-rlit, pcs)) {
 					LOG ("marking %d as true", -rlit);
 					set_true (-rlit, pcs); // falsified literal, propagating lit
+					
+					set_base (-rlit, pcs); // TODO: remove ?
+					set_base (rlit, pcs); // TODO: remove ?
 					base.push_back (-rlit);			
 				}
 			}
@@ -316,27 +402,35 @@ extern "C" {
 	void Internal::allrpr_collect_more (vector<int> &base, allrpr_proof_clauses &pcs) {
 		LOG ("ALLRPR COLLECT MORE");
 		START (allrprcollect);
+		vector<Clause*> unmarkcls;
 		vector<int> work;
-		int64_t collected = 0;
+		int64_t basecls = 0;
+		int64_t extracls = 0;
 		// init work stack in order of assumption
 
 		LOG (conflict, "Adding conflict");
 		feed_reason (pcs, conflict);
+		assert (!conflict->added);
+		conflict->added = true;
+		unmarkcls.push_back (conflict);
 		pcs.is_extra.push_back (0);  // TODO: remove later on
-		collected++;
+		basecls++;
 		// add base reasons and queue them up for work
 		LOG (base, "Adding base reasons for");
 		for (const int &lit : base) {
 			Var &v = var (lit);
 			if (!v.level) {
-				collected++;
+				basecls++;
 				feed_unit_reason (lit);
 				set_reason_added (lit, pcs);
 			} else if (v.reason) {
-				collected++;
+				basecls++;
 				feed_reason (pcs, v.reason);
 				set_reason_added (lit, pcs);
 				pcs.is_extra.push_back (0);
+				assert (!v.reason->added);
+				v.reason->added = true;
+				unmarkcls.push_back (v.reason);
 			} else {
 				LOG ("No reason for %d", lit);
 			}
@@ -362,12 +456,20 @@ extern "C" {
 			while (j != eow) {
 				const Watch w = *j++;
 				int prop_lit = 0;
+				if (w.size > 4) // TODO: remove after tests
+					continue;
+				if (w.clause->added) {
+					LOG (w.clause, "Skipping already added clause");
+					continue;
+				}
 				if (clause_is_qualified (w.clause, prop_lit, pcs)) {
 					if (!prop_lit) {
 						LOG (w.clause, "Adding possibly conflict");
 						feed_reason (pcs, w.clause);
 						pcs.is_extra.push_back (1);
-						collected++;
+						extracls++;
+						w.clause->added = true;
+						unmarkcls.push_back (w.clause);
 						continue;
 					} 
 					else {
@@ -376,14 +478,18 @@ extern "C" {
 							LOG (w.clause, "Adding possibly propagating %d", prop_lit);
 							feed_reason (pcs, w.clause);
 							pcs.is_extra.push_back (1);
-							collected++;
+							extracls++;
+							w.clause->added = true;
+							unmarkcls.push_back (w.clause);
 						} 
 						else if (!is_reason_added (prop_lit, pcs)) {
 							LOG (w.clause, "Adding reason for possibly propagating %d", prop_lit);
 							set_reason_added (prop_lit, pcs);
-						}
-						else {
-							LOG (vnf.reason, "Skipping %d reason", prop_lit);
+							feed_reason (pcs, w.clause);
+							pcs.is_extra.push_back (1);
+							extracls++;
+							w.clause->added = true;
+							unmarkcls.push_back (w.clause);
 						}
 						// Mark and push to work, if wasn't work already
 						if (!is_true (prop_lit, pcs)) {
@@ -400,9 +506,151 @@ extern "C" {
 				}
 			}
 		}
-		LOG ("ALLRPR COLLECT MORE FINISHED COLLECTING %lld clauses", collected);
-		//LOG (ids, "collected: ");
-		stats.allrpr.added += collected;
+		LOG ("ALLRPR COLLECT MORE FINISHED COLLECTING %lld clauses", basecls + extracls);
+		stats.allrpr.added += basecls + extracls;
+		stats.allrpr.baseadded += basecls;
+		stats.allrpr.extradded += extracls;
+		// clean up
+		for (Clause* c : unmarkcls) {
+			assert (c->added);
+			c->added = 0;
+		}
+		STOP (allrprcollect);
+	}
+
+
+	// Also filter clauses that have dist > k, where dist is the number of non base lits in the clause
+	// These clauses are also marked as added but aren't added to kitten
+	void Internal::allrpr_collect_more_dist_filter (vector<int> &base, allrpr_proof_clauses &pcs) {
+		LOG ("ALLRPR COLLECT MORE");
+		START (allrprcollect);
+		vector<Clause*> unmarkcls;
+		vector<int> work;
+		int64_t basecls = 0;
+		int64_t extracls = 0;
+		// init work stack in order of assumption
+
+		LOG (conflict, "Adding conflict");
+		feed_reason (pcs, conflict);
+		assert (!conflict->added);
+		conflict->added = true;
+		unmarkcls.push_back (conflict);
+		pcs.is_extra.push_back (0);  // TODO: remove later on
+		basecls++;
+		// add base reasons and queue them up for work
+		LOG (base, "Adding base reasons for");
+		for (const int &lit : base) {
+			Var &v = var (lit);
+			if (!v.level) {
+				basecls++;
+				feed_unit_reason (lit);
+				set_reason_added (lit, pcs);
+			} else if (v.reason) {
+				basecls++;
+				feed_reason (pcs, v.reason);
+				set_reason_added (lit, pcs);
+				pcs.is_extra.push_back (0);
+				assert (!v.reason->added);
+				v.reason->added = true;
+				unmarkcls.push_back (v.reason);
+			} else {
+				LOG ("No reason for %d", lit);
+			}
+			work.push_back (lit);
+			set_worked (lit, pcs);
+		}
+
+		LOG (work, "initialized work to");
+		// Now start at the end of work and look for further propagations given
+		// the valuations by the marks. If a literal could propagate, we push it 
+		// onto work and mark it.
+		while (!work.empty ()) {
+			int lit = work.back ();
+			assert (is_worked (lit, pcs));
+			work.pop_back ();
+			LOG ("working on %d", lit);
+
+			LOG ("Checking watch list of %d", -lit);
+			Watches &ws = watches (-lit);
+			const const_watch_iterator eow = ws.end ();
+			watch_iterator j = ws.begin ();
+
+			while (j != eow) {
+				const Watch w = *j++;
+				int prop_lit = 0;
+				if (w.size > 4) // TODO: remove after tests
+					continue;
+				if (w.clause->added) {
+					LOG (w.clause, "Skipping already added clause");
+					continue;
+				}
+				// Filter clauses whose dist is too high -------------------------------
+				int nb_in_c = 0;
+				for (const int &l : *w.clause) {
+					if (!is_base (l, pcs))
+						nb_in_c++;
+				}
+				if (nb_in_c > 3) { // TODO: If this is something, make it a option
+					LOG (w.clause, "skipping too high dist");
+					w.clause->added = true; // mark added so it is skipped in the future
+					unmarkcls.push_back (w.clause);
+					continue;
+				}
+				// ---------------------------------------------------------------------
+
+				if (clause_is_qualified (w.clause, prop_lit, pcs)) {
+					if (!prop_lit) {
+						LOG (w.clause, "Adding possibly conflict");
+						feed_reason (pcs, w.clause);
+						pcs.is_extra.push_back (1);
+						extracls++;
+						w.clause->added = true;
+						unmarkcls.push_back (w.clause);
+						continue;
+					} 
+					else {
+						Var &vnf = var (prop_lit);
+						if (vnf.reason != w.clause) {
+							LOG (w.clause, "Adding possibly propagating %d", prop_lit);
+							feed_reason (pcs, w.clause);
+							pcs.is_extra.push_back (1);
+							extracls++;
+							w.clause->added = true;
+							unmarkcls.push_back (w.clause);
+						} 
+						else if (!is_reason_added (prop_lit, pcs)) {
+							LOG (w.clause, "Adding reason for possibly propagating %d", prop_lit);
+							set_reason_added (prop_lit, pcs);
+							feed_reason (pcs, w.clause);
+							pcs.is_extra.push_back (1);
+							extracls++;
+							w.clause->added = true;
+							unmarkcls.push_back (w.clause);
+						}
+						// Mark and push to work, if wasn't work already
+						if (!is_true (prop_lit, pcs)) {
+							LOG ("%d is not set to true. setting true flag...", prop_lit);
+							set_true (prop_lit, pcs);
+						}
+						// if the watch list of the literal wasn't yet traversed queue it up for work
+						if (!is_worked (prop_lit, pcs)) {
+							LOG ("%d wasn't in work yet. pushing to work...", prop_lit);
+							work.push_back (prop_lit);
+							set_worked (prop_lit, pcs);
+						}
+					} 
+				}
+			}
+		}
+		LOG ("ALLRPR COLLECT MORE FINISHED COLLECTING %lld clauses", basecls + extracls);
+		stats.allrpr.added += basecls + extracls;
+		stats.allrpr.baseadded += basecls;
+		stats.allrpr.extradded += extracls;
+		// clean up
+		for (Clause* c : unmarkcls) {
+			assert (c->added);
+			c->added = 0;
+		}
 		STOP (allrprcollect);
 	}
 
@@ -422,28 +670,9 @@ extern "C" {
 		}
 
 		unsigned last_learned_id = final_clause.kitten_id;
-		int nlearned = 0;
-		int norig = 0;
-		int extraincore = 0;
-		int extragrbinary = 0;
-		int extragrternary = 0;
 		for (auto &pc: core) {
-			if (!pc.learned) { // allready proven clause (known to cadical)
-				norig++;
-				// TODO: vvv remove later on vvv----------------------------------------
-				if (pc.literals.size () == 1) // units are not stored in pcs.reasons
-					continue;
-				bool is_extra = pcs.is_extra[pc.allrpr_id];
-				if (is_extra) {
-					if (pc.literals.size () > 2)
-						extragrbinary++;
-					if (pc.literals.size () > 3)
-						extragrternary++;
-					extraincore++;
-				}
+			if (!pc.learned) // allready proven clause (known to cadical)
 				continue;
-			} 
-			nlearned++;
 			LOG (pc.literals, "deriving LRAT proof for ");
 			assert (pc.cadical_id == INVALID64);
 			// build chain of cadical ids
@@ -468,25 +697,7 @@ extern "C" {
 				lrat_chain.clear ();
 			}
 		}
-		assert (nlearned > 0);
-		if (nlearned - 1) { // only track intermediate clauses.
-			LOG ("%d intermediate clauses learned", nlearned - 1);
-			stats.allrpr.nintermediate++;
-			stats.allrpr.sintermediate += nlearned - 1; 
-		}
-		stats.allrpr.ncoreclauses += nlearned + norig;
-		if (extraincore) {
-			stats.allrpr.extraisincore++; // core contains an extra (non-reason) clause
-			stats.allrpr.extracsincore += extraincore; // number of extra clauses in core
-			if (extragrbinary) {
-				stats.allrpr.extragrbinaryincore++;
-				stats.allrpr.extragrbinary += extragrbinary;
-			}
-			if (extragrternary) { // extra clause with size > 3 in core
-				stats.allrpr.extragrternaryincore++;
-				stats.allrpr.extragrternary += extragrternary;
-			}
-		}
+		
 		// now all intermediate learned clauses are proven.
 		STOP (allrprlrat);
 	}
@@ -518,33 +729,136 @@ extern "C" {
 		// Some of the assumptions should then fail resulting in a proof of clause
 		LOG (clause, "LEARNED CLAUSE: ");
 		for (const auto &lit: clause) {
-      if (lit == -uip)
-        continue;
       LOG ("KITTEN ASSUME %d", -lit);
       kitten_assume_signed (citten, -lit);
     }
-    LOG ("KITTEN ASSUME UIP %d", uip);
-    kitten_assume_signed (citten, uip); // Assume uip last (not not uip)
-
-    //#ifdef LOGGING
-  	//if (opts.log)
-  	//	kitten_set_logging (citten);
-  	//#endif
-
+    
     if (opts.allrprshufflec) {
     	kitten_shuffle_clauses (citten);
     }
 
-		kitten_track_antecedents (citten);
+    if (!opts.allrprretries)
+			kitten_track_antecedents (citten);
+
 		kitten_solve (citten);
 
 		// Now compute the clausal core and trace it. This will provide resolution
 		// chains, which can be used for deriving an LRAT proof.
 		kitten_compute_clausal_core (citten, nullptr);
 		kitten_trace_core (citten, &pcs, extract_clause_from_kitten);
+
 		stats.allrpr.kittencalls++;
 		STOP (allrprsolve);
 	}
 
+	// 
+	// Test for retry
+	//  
+	void Internal::allrpr_kitten_attempt_minimize (allrpr_mini_pcs &mini_pcs, int &attempt) {
+		START (allrprsolve);
+		assert (citten);
+
+		LOG (clause, "Kitten Minimization Attempt %d on", attempt);
+
+		for (const auto &lit: clause) {
+			LOG ("Assuming %d", -lit);
+			kitten_assume_signed (citten, -lit);
+		}
+
+		kitten_shuffle_assumptions (citten);
+
+		if (opts.allrprshufflec) {
+			kitten_shuffle_clauses (citten);
+		}
+
+		kitten_solve (citten);
+
+		kitten_compute_clausal_core (citten, nullptr);
+		kitten_traverse_core_clauses (citten, &mini_pcs, get_final_from_core);
+		STOP (allrprsolve);
+	}
+
+	// update stats after successful further minimization
+	//
+	void Internal::allrpr_update_extra_stats (allrpr_proof_clauses &pcs) {
+		LOG ("ALLRPR UPDATE CORE STATS AFTER SUCCESS");
+
+		int coreextras = 0;
+		int corebase = 0;
+		int binary = 0;
+		int ternary = 0;
+		int quarternary = 0;
+		int grquarternary = 0;
+
+		for (const auto &pc : pcs.proof_clauses) {
+			if (pc.learned) {
+				LOG (pc.literals, "kitten learned");
+				continue;
+			}
+			if (pc.literals.size () == 1) {
+				LOG (pc.literals, "unit");
+				corebase++;
+				continue;
+			}
+			if (!pcs.is_extra[pc.allrpr_id]) {
+				LOG (pc.literals, "non-extra [%lld]", pc.cadical_id);
+				corebase++;
+				continue;
+			}
+			coreextras++;
+			int base = 0;
+			for (const int &lit : pc.literals) {
+				if (!is_base (lit, pcs)) {
+					LOG ("non base %d", lit);
+				}
+				else {
+					LOG ("base %d", lit);
+					base++;
+				}
+			}
+			// collect size of extra clause stats
+			const int size = (int) pc.literals.size ();
+			switch (size) {
+				case 2:
+					binary++;
+					break;
+				case 3:
+					ternary++;
+					break;
+				case 4:
+					quarternary++;
+					break;
+				default:
+					grquarternary++;
+					break;
+			}
+			// collect distance from base set stats
+			switch (size - base) {
+				case 0:
+					internal->stats.allrpr.dist0extra++;
+					break;
+				case 1:
+					internal->stats.allrpr.dist1extra++;
+					break;
+				case 2:
+					internal->stats.allrpr.dist2extra++;
+					break;
+				case 3:
+					internal->stats.allrpr.dist3extra++;
+					break;
+				default:
+					internal->stats.allrpr.distgr3extra++;
+					break;
+			}
+			stats.allrpr.baselits += base;
+			stats.allrpr.nonbaselits +=	size - base;	
+		}
+		stats.allrpr.extracsinminicore += coreextras;
+		stats.allrpr.basecsinminicore += corebase;
+		stats.allrpr.extra2inminicore += binary;
+		stats.allrpr.extra3inminicore += ternary;
+		stats.allrpr.extra4inminicore += quarternary;
+		stats.allrpr.extragr4inminicore += grquarternary;
+	}
 
 }	
