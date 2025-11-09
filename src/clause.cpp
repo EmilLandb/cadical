@@ -42,6 +42,10 @@ void Internal::unmark_clause () {
 void Internal::mark_removed (Clause *c, int except) {
   LOG (c, "marking removed");
   assert (!c->redundant);
+
+  if (c->added) // notify that the kitten clause base is corrupted
+    allrpr_need_reset = true;
+
   for (const auto &lit : *c)
     if (lit != except)
       mark_removed (lit);
@@ -69,6 +73,10 @@ inline void Internal::mark_added (int lit, int size, bool redundant) {
 void Internal::mark_added (Clause *c) {
   LOG (c, "marking added");
   assert (likely_to_be_kept_clause (c));
+
+  if (c->added)
+    allrpr_need_reset = true;
+  
   for (const auto &lit : *c)
     mark_added (lit, c->size, c->redundant);
 }
@@ -219,6 +227,9 @@ size_t Internal::shrink_clause (Clause *c, int new_size) {
     c->literals[i] = 0;
 #endif
 
+  if (c->added) // notify that the kitten clause base is corrupted
+    allrpr_need_reset = true;
+
   if (c->pos >= new_size)
     c->pos = 2;
 
@@ -299,7 +310,9 @@ void Internal::delete_clause (Clause *c) {
 void Internal::mark_garbage (Clause *c) {
 
   assert (!c->garbage);
-
+  
+  if (c->added)
+    allrpr_need_reset = true;
   // Delay tracing deletion of binary clauses.  See the discussion above in
   // 'delete_clause' and also in 'propagate'.
   //

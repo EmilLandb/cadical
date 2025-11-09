@@ -753,36 +753,52 @@ struct Internal {
   void calculate_minimize_chain (int lit, std::vector<int> &stack);
 
   // Automated Local Linear Resolution Proof Reconstruction
+  // ( And Learned Clause Strengthening) ALLRPRLCS 
   //
+  int allrpr_last_reduction = stats.reductions;
+  int allrpr_last_strengthening = stats.otfs.strengthened;
+  int64_t allrpr_last_size_after_reset = 0;
+  bool allrpr_need_reset = false;
+  allrpr_proof_clauses allrpr_pcs;
   signed char &allrpr_mark (int lit, allrpr_proof_clauses &pcs);
   inline bool is_true (int lit, allrpr_proof_clauses &pcs);   
   inline bool is_false (int lit, allrpr_proof_clauses &pcs);  
   inline bool is_target (int lit, allrpr_proof_clauses &pcs); 
   inline bool is_worked (int lit, allrpr_proof_clauses &pcs);
-  inline bool is_reason_added (int lit, allrpr_proof_clauses &pcs); 
+  inline bool is_in_kitten (int lit, allrpr_proof_clauses &pcs);
+  //inline bool is_reason_added (int lit, allrpr_proof_clauses &pcs); 
   inline bool is_base (int lit, allrpr_proof_clauses &pcs);
   inline void set_true (int lit, allrpr_proof_clauses &pcs);  
   inline void set_false (int lit, allrpr_proof_clauses &pcs);  
   inline void set_target (int lit, allrpr_proof_clauses &pcs);
   inline void unset_target (int lit, allrpr_proof_clauses &pcs);
   inline void set_worked (int lit, allrpr_proof_clauses &pcs);
-  inline void set_reason_added (int lit, allrpr_proof_clauses &pcs);
+  inline void set_in_kitten (int lit, allrpr_proof_clauses &pcs);
+  //inline void set_reason_added (int lit, allrpr_proof_clauses &pcs);
   inline void set_base (int lit, allrpr_proof_clauses &pcs);
+
   void allrpr_init_citten (); 
   void allrpr_reset_citten ();
+  void allrpr_clear_added_flags (); // clear all added flags in collected clauses
+
   void allrpr_shuffle(vector<int> &clause); 
   void allrpr_sort_shrunken();
+
   inline bool clause_is_qualified (Clause *c, int &nonfalse, allrpr_proof_clauses &pcs);
   inline void feed_reason (allrpr_proof_clauses &pcs, Clause *reason); // book keeping and adding clause to kitten
   inline void feed_unit_reason (int unit); // just adding unit clause to kitten
+
   void allrpr_mark_graph (vector<int> &base, allrpr_proof_clauses &pcs);
   void allrpr_collect_more (vector<int> &cleanmarked, allrpr_proof_clauses &pcs); // collect more but not all
-  void allrpr_collect_more_dist_filter (vector<int> &base, allrpr_proof_clauses &pcs);
+  //void allrpr_collect_more_dist_filter (vector<int> &base, allrpr_proof_clauses &pcs);
+  void allrpr_collect_more_dist_filterV2 (vector<int> &base, allrpr_proof_clauses &pcs);
+
   void allrpr_build_lrat (allrpr_proof_clauses &pcs); // builds LRAT proof from collected kitten core
   void allrpr_delete_intermediate_lrat (allrpr_proof_clauses &pcs); // deletes intermediate LRAT proof steps 
   void allrpr_kitten_catch_rat (int &uip, allrpr_proof_clauses &pcs); // LRAT chain from kitten
   void allrpr_kitten_attempt_minimize (allrpr_mini_pcs &mini_pcs, int &attempt);
   void allrpr_update_extra_stats (allrpr_proof_clauses &pcs);
+  
   // Learning from conflicts in 'analyze.cc'.
   //
   void learn_empty_clause ();
@@ -1032,7 +1048,7 @@ struct Internal {
   void transred ();
 
   // We monitor the maximum size and glue of clauses during 'reduce' and
-  // thus can predict if a redundant extended clause is likely to be kept in
+  // thus can predict if a redundant extended clause is c total process time since initialization: to be kept in
   // the next 'reduce' phase.  These clauses are target of subsumption and
   // vivification checks, in addition to irredundant clauses.  Their
   // variables are also marked as being 'added'.

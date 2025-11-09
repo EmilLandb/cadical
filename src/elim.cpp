@@ -1005,6 +1005,8 @@ void Internal::increase_elimination_bound () {
 void Internal::init_citten () {
   if (!opts.elimdef)
     return;
+  if (citten)
+    allrpr_reset_citten ();
   assert (!citten);
   citten = kitten_init ();
 }

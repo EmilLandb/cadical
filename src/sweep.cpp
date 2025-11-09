@@ -225,6 +225,10 @@ void Internal::init_sweeper (Sweeper &sweeper) {
           .size (); // initialize with the cost of building full occ list.
   sweeper.current_ticks +=
       2 + 2 * cache_lines (clauses.size (), sizeof (Clause *));
+  
+  if (citten)
+    allrpr_reset_citten ();
+  
   assert (!citten);
   citten = kitten_init ();
   citten_clear_track_log_terminate ();

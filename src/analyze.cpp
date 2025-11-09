@@ -868,6 +868,7 @@ inline void Internal::otfs_subsume_clause (Clause *subsuming,
                                            Clause *subsumed) {
   stats.subsumed++;
   assert (subsuming->size <= subsumed->size);
+
   LOG (subsumed, "subsumed");
   if (subsumed->redundant)
     stats.subred++;
@@ -900,6 +901,8 @@ void Internal::otfs_strengthen_clause (Clause *c, int lit, int new_size,
                                        const std::vector<int> &old) {
   stats.strengthened++;
   assert (c->size > 2);
+  if (c->added)
+    allrpr_need_reset = true;
   (void) shrink_clause (c, new_size);
   if (proof) {
     proof->otfs_strengthen_clause (c, old, mini_chain);
@@ -1243,22 +1246,39 @@ void Internal::analyze () {
   UPDATE_AVERAGE (averages.current.size, size);
 
   STOP (analyze);
+
   // reverse lrat_chain. We could probably work with reversed iterators
   // (views) to be more efficient but we would have to distinguish in proof
   //
-  // ALLRPR 
+  // also ALLRPR... 
   //
-  allrpr_proof_clauses allrpr_pcs;
   bool kitten_successful_mini =  false;
 
   if (lrat) {
+    // TODO: turn all of this into a predicate ---------------------------------
     const bool was_tier1 = glue <= tier1[false];
-    const bool was_tier2 = glue <= tier2[false]; 
-    const bool try_kitten_mini = (!opts.allrprgluethresh || glue <= tier2[false] + 1)
+    const bool was_tier2 = glue <= tier2[false];
+    const bool sizequalified = size < lim.keptsize || size < opts.allrprsizethresh; // TODO: is this a good idea?
+    const bool gluequalified = lim.keptglue ? glue <= lim.keptglue : glue <= tier2[false]; // TODO: ''
+    // the lrat chain already contains the necessary base reasons so this can 
+    // be used as a filter. E.g. linked_list_swap_contents*.cnf produces 
+    // conflicts with huge implication graphs. These conflicts should be skipped
+    // because using kitten here will slow the solver down immensely
+    const bool basesizequalified = (int) lrat_chain.size () < opts.allrprbasethresh; 
+    // TODO: turn all of this into a predicate --------------vvvvvvvvvv---------
+    const bool try_kitten_mini = (!opts.allrprgluethresh || gluequalified) // +1
                                  &&
                                  (!opts.allrprfiltershrink || old_size > size)
-                                 && size > 1;
-
+                                 && basesizequalified
+                                 && sizequalified && size > 1;
+    if (opts.allrprreport) {
+      printf ("KIT tier2[false]: %d\n", tier2[false]);
+      printf ("KIT tier2[true]: %d\n", tier2[true]);
+      printf ("KIT lim.keptglue: %d\n", lim.keptglue);
+      printf ("KIT lim.keptsize: %d\n", lim.keptsize);
+      printf ("KIT preLRAT Chain size: %zu\n", lrat_chain.size ());
+    }
+      
     if (!try_kitten_mini) { // Finalize LRAT chain
       LOG (unit_chain, "unit chain: ");
       for (auto id : unit_chain)
@@ -1271,11 +1291,53 @@ void Internal::analyze () {
       if (opts.allrprfiltershrink) {
         stats.allrpr.kittenaftershrink++;
       }
-
-      allrpr_pcs.internal = this;
-      allrpr_pcs.marks.resize (2 * internal->max_var + 3);
-      if (!citten)
+      if (citten && allrpr_need_reset) {
+        // this is true if mark_garbage, mark_added or mark_removed was called
+        // on a clause for which c->added holds. All pointers should still be 
+        // valid but the Kitten clause base is still corrupted. Before resetting
+        // we need to unflag all c->added clauses and clear the clause map.
+        // If we had a reduction the flags and reasons would've been cleared 
+        // directly before garbage collection.
+        if (!(allrpr_last_reduction < stats.reductions)) {
+          LOG ("Some clause in Kitten is out of sync. Resetting...");
+          allrpr_clear_added_flags ();
+        }
+        else {
+          LOG ("Garbage collection ran previously. Resetting...");
+          allrpr_last_reduction = stats.reductions;  
+        }
+        allrpr_reset_citten ();
+        allrpr_need_reset = false;        
+      }
+      if (!citten) {
+        LOG ("Initializing fresh Kitten...");
+        if (opts.allrprreport)
+          printf ("\nKIT Kitten Size 0\n"); // TODO Remove
         allrpr_init_citten ();
+        kitten_track_antecedents (citten);
+        LOG ("Clearing added flags and allrpr_pcs.reasons...");
+        int cleared = 0;
+        // Here we also need to clear flags and reasons because Kitten got reset
+        // in elim or sweep.
+        if (!allrpr_pcs.reasons.empty ())
+          for (Clause *c : allrpr_pcs.reasons) {
+            if (c->moved) {
+              LOG (c->copy, "(copy) clearing added in");
+              (c->copy)->added = false;
+            } else {
+              LOG (c, "clearing added in");
+              assert (c->added);
+              c->added = false;
+              cleared++;
+            }
+          }
+        allrpr_pcs.reasons.clear ();
+        allrpr_pcs.marks.clear (); // Clear all marks
+        allrpr_pcs.marks.resize (2 * internal->max_var + 3); 
+        allrpr_pcs.internal = this;
+        allrpr_last_size_after_reset = 0;
+      }  
+      assert (citten);    
       if (opts.allrprshufflea)
         allrpr_shuffle (clause);
       else if (opts.allrprorder) // sort clause by increasing trail position
@@ -1288,17 +1350,39 @@ void Internal::analyze () {
       }
       vector<int> base; // Literals that will eventually be true given the necessary reasons and the learned clause
 
+      // Clear all marks except for the IN_KITTEN mark, because this one is
+      // needed to early skip candidate literals in collect_more
+        //allrpr_pcs.marks.clear (); // Always clear the marks 
+        //allrpr_pcs.marks.resize (2 * internal->max_var + 3);
+      for (signed char &sc : allrpr_pcs.marks) {
+        sc &= 0b11110000;
+      }
+
       allrpr_mark_graph (base, allrpr_pcs);
       //allrpr_collect_more (base, allrpr_pcs);
-      allrpr_collect_more_dist_filter (base, allrpr_pcs); // TODO: ...
+      //allrpr_collect_more_dist_filter (base, allrpr_pcs); 
+      allrpr_collect_more_dist_filterV2 (base, allrpr_pcs); 
+
+      if (opts.allrprreport) {
+        printf ("KIT Kitten Size %zu\n", allrpr_pcs.reasons.size ()); // TODO: remove
+        printf ("KIT size of base %zu\n", base.size ());
+        printf ("KIT learned clause: "); // TODO: remove
+        for (const int &lit : clause) { // TODO: remove
+          printf ("%d ", lit); // TODO: remove
+        } // TODO: remove
+        printf ("\n"); // TODO: remove
+      }
 
       const size_t post_shrink_size = clause.size ();
+
+      #ifdef LOGGING
+      kitten_set_logging (citten);
+      #endif
 
       // Try to minimize with kitten (including retries)
       allrpr_mini_pcs mini_pcs;
       mini_pcs.internal = this;
       vector<int> &final = mini_pcs.final_clause;
-      kitten_track_antecedents (citten);
       int minimized_again = -1; // first minimization isn't accounted for here
       for (int i = 0; i < opts.allrprretries; i++) {
         if (clause.size () == 0)
@@ -1307,13 +1391,19 @@ void Internal::analyze () {
         LOG (mini_pcs.final_clause, "clause after attempt %i", i);
         if (mini_pcs.final_clause.size () < clause.size ()) { // successful further further
           minimized_again++;
+          if (opts.allrprreport)
+            printf ("KIT mini %d\n", i);
         }
-        if (!final.empty ())
+        if (!final.empty ()) 
           clause = mini_pcs.final_clause;
+        else { // UNSAT, derived empty clause. allrpr_kitten_catch_rat will now just retrace core
+          uip = 0;
+          break;
+        }
       }
       // now finally with extracting the core. TODO: only if minimization was successful
       allrpr_kitten_catch_rat (uip, allrpr_pcs);
-      
+    
       // Find out whether further minimization was achieved
       vector<int> &klause = 
           allrpr_pcs.proof_clauses[allrpr_pcs.proof_clauses.size () - 1].literals;
@@ -1325,10 +1415,16 @@ void Internal::analyze () {
         stats.allrpr.miniagain += minimized_again;
       }
       if (post_shrink_size > new_size) { // minimization achieved, build own LRAT chain
-        kitten_successful_mini = true;
-        clause = std::move(klause);
-        LOG (clause, "Further minimization to");
+        if (opts.allrprreport) {
+          printf ("KIT clause minimized by %zu, relative decrease %f to ", post_shrink_size - new_size, (double) new_size / post_shrink_size);
+          for (const int &lit : klause) { // TODO: remove
+            printf ("%d ", lit); // TODO: remove
+          } // TODO: remove
+          printf ("\n"); // TODO: remove  
+        }
+        
 
+        kitten_successful_mini = true;
         allrpr_update_extra_stats (allrpr_pcs);
 
         stats.allrpr.nminimized++;
@@ -1341,6 +1437,10 @@ void Internal::analyze () {
         unit_chain.clear ();
 
         allrpr_build_lrat (allrpr_pcs);
+
+        clause = std::move(klause);
+        LOG (clause, "Further minimization to");
+
         // uip might have changed
         if (clause.size ()) {
           MSORT (opts.radixsortlim, clause.begin (), clause.end (),
@@ -1396,8 +1496,8 @@ void Internal::analyze () {
         unit_chain.clear ();
         reverse (lrat_chain.begin (), lrat_chain.end ());
       }
-      //allrpr_reset_citten ();  // TODO: what is the correct choice ? It doesn't seem to make a difference on runtime
-      kitten_clear (citten); 
+      if (opts.allrprreport)
+        printf ("\n");
     }  
   }
   START (analyze);
@@ -1429,7 +1529,9 @@ void Internal::analyze () {
 
     // ALLRPR delete intermediate proof steps.
     allrpr_delete_intermediate_lrat (allrpr_pcs);
-    
+    allrpr_pcs.proof_clauses.clear (); // clear proof clauses after every lrat generation but keep reasons for now
+
+
     STOP (analyze);
     return;
   }
@@ -1466,6 +1568,7 @@ void Internal::analyze () {
     LOG ("Deleting intermediate lrat steps, since kitten minimized");
     allrpr_delete_intermediate_lrat (allrpr_pcs);
   }
+  allrpr_pcs.proof_clauses.clear (); // clear proof clauses after every lrat generation but keep reasons for now
   lrat_chain.clear ();
   STOP (analyze);
 

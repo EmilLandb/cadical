@@ -273,7 +273,9 @@ void Internal::update_reason_references () {
 // which are likely accessed after each other.
 
 void Internal::delete_garbage_clauses () {
-
+  
+  allrpr_clear_added_flags (); // Otherwise some pointers may be dangling
+  
   flush_all_occs_and_watches ();
 
   LOG ("deleting garbage clauses");
@@ -323,6 +325,8 @@ void Internal::copy_clause (Clause *c) {
 
 void Internal::copy_non_garbage_clauses () {
 
+  allrpr_clear_added_flags ();
+  
   size_t collected_clauses = 0, collected_bytes = 0;
   size_t moved_clauses = 0, moved_bytes = 0;
 
