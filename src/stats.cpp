@@ -71,9 +71,6 @@ void Stats::print (Internal *internal) {
      PRT ("  added:         %15" PRId64 "   %10.2f    per kitten call",
           stats.allrpr.added,
           relative (stats.allrpr.added, stats.allrpr.kittencalls));
-     PRT ("  minicorecls    %15" PRId64 "   %10.2f    per successful minimization",
-          stats.allrpr.basecsinminicore + stats.allrpr.extracsinminicore,
-          relative (stats.allrpr.basecsinminicore + stats.allrpr.extracsinminicore, stats.allrpr.nminimized));
      PRT ("  learnedlits    %15" PRId64 "   %10.2f    per successful minimization (pre kitten)",
           stats.allrpr.slearnedlits,
           relative (stats.allrpr.slearnedlits, stats.allrpr.nminimized));
@@ -101,6 +98,17 @@ void Stats::print (Internal *internal) {
      PRT ("  totalglue      %15" PRId64 "   %10.2f    per glue improvement",
           stats.allrpr.simprovedglue,
           relative (stats.allrpr.simprovedglue, stats.allrpr.nimprovedglue));
+     PRT ("  baseadded      %15" PRId64 "   %10.2f %%  of all added",
+          stats.allrpr.baseadded,
+          percent (stats.allrpr.baseadded, stats.allrpr.added));
+     PRT ("  extradded      %15" PRId64 "   %10.2f %%  of all added",
+          stats.allrpr.extradded,
+          percent (stats.allrpr.extradded, stats.allrpr.added));
+  }
+  if (stats.allrpr.basecsinminicore) {
+     PRT ("  minicorecls    %15" PRId64 "   %10.2f    per successful minimization",
+          stats.allrpr.basecsinminicore + stats.allrpr.extracsinminicore,
+          relative (stats.allrpr.basecsinminicore + stats.allrpr.extracsinminicore, stats.allrpr.nminimized));
      PRT ("  baseinmini     %15" PRId64 "   %10.2f %%  of cls in mini core",
           stats.allrpr.basecsinminicore,
           percent (stats.allrpr.basecsinminicore, stats.allrpr.basecsinminicore + stats.allrpr.extracsinminicore));
@@ -140,12 +148,6 @@ void Stats::print (Internal *internal) {
      PRT ("  distgr3extras  %15" PRId64 "   %10.2f %%  of all extras",
           stats.allrpr.distgr3extra,
           percent (stats.allrpr.distgr3extra, stats.allrpr.extracsinminicore));
-     PRT ("  baseadded      %15" PRId64 "   %10.2f %%  of all added",
-          stats.allrpr.baseadded,
-          percent (stats.allrpr.baseadded, stats.allrpr.added));
-     PRT ("  extradded      %15" PRId64 "   %10.2f %%  of all added",
-          stats.allrpr.extradded,
-          percent (stats.allrpr.extradded, stats.allrpr.added));
   }
   if (all || stats.blocked) {
     PRT ("blocked:         %15" PRId64

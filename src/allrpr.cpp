@@ -5,7 +5,7 @@ namespace CaDiCaL {
 	#define INVALID64 INT64_MAX
 	#define INVALID UINT_MAX
 
-	// ---------------------------------------------------------------------------
+	// -------------------------------------------------------------------------//
 	//      |I|B|W|T|T
 	//	    |N|A|O|R|R
 	//      |K|S|R|G|U
@@ -16,46 +16,46 @@ namespace CaDiCaL {
 	constexpr signed char WORKED = 1 << 2;
 	constexpr signed char BASE = 1 << 3;
 	constexpr signed char IN_KITTEN = 1 << 4;
+
 	signed char &Internal::allrpr_mark (int lit, allrpr_proof_clauses &pcs) {
 		assert (internal->vlit (lit) < pcs.marks.size ());
 		return pcs.marks[internal->vlit (lit)];
 	}
 
-	inline bool Internal::is_true (int lit, allrpr_proof_clauses &pcs) {
+	const signed char &Internal::allrpr_mark(int lit, const allrpr_proof_clauses &pcs) const {
+    assert(internal->vlit(lit) < pcs.marks.size());
+    return pcs.marks[internal->vlit(lit)];
+	}
+
+	inline bool Internal::is_true (int lit, const allrpr_proof_clauses &pcs) const {
 	 return allrpr_mark (lit, pcs) & TRUE; 
 	}
 
-	inline bool Internal::is_false (int lit, allrpr_proof_clauses &pcs) {
+	inline bool Internal::is_false (int lit, const allrpr_proof_clauses &pcs) const {
 	 return allrpr_mark (-lit, pcs) & TRUE; 
 	}
 
-	inline bool Internal::is_target (int lit, allrpr_proof_clauses &pcs) {
+	inline bool Internal::is_target (int lit, const allrpr_proof_clauses &pcs) const {
 	 return allrpr_mark (lit, pcs) & TARGET; 
 	}
 
-	inline bool Internal::is_worked (int lit, allrpr_proof_clauses &pcs) {
+	inline bool Internal::is_worked (int lit, const allrpr_proof_clauses &pcs) const {
 	 return allrpr_mark (lit, pcs) & WORKED; 
 	}
 
-	inline bool Internal::is_in_kitten (int lit, allrpr_proof_clauses &pcs) {
+	inline bool Internal::is_in_kitten (int lit, const allrpr_proof_clauses &pcs) const {
 		return allrpr_mark (lit, pcs) & IN_KITTEN;
 	}
 
-	/*
-	inline bool Internal::is_reason_added (int lit, allrpr_proof_clauses &pcs) {
-		return allrpr_mark (lit, pcs) & REASON_ADDED; 
-	}
-	*/
-
-	inline bool Internal::is_base (int lit, allrpr_proof_clauses &pcs) {
+	inline bool Internal::is_base (int lit, const allrpr_proof_clauses &pcs) const {
 		return allrpr_mark (lit, pcs) & BASE; 
 	}
 
-	inline void Internal::set_true (int lit, allrpr_proof_clauses &pcs)   {
+	inline void Internal::set_true (int lit, allrpr_proof_clauses &pcs) {
 	 allrpr_mark (lit, pcs) |= TRUE; 
 	}
 
-	inline void Internal::set_false (int lit, allrpr_proof_clauses &pcs)   {
+	inline void Internal::set_false (int lit, allrpr_proof_clauses &pcs) {
 	 allrpr_mark (lit, pcs) &= ~TRUE; 
 	}
 
@@ -74,17 +74,12 @@ namespace CaDiCaL {
 	inline void Internal::set_in_kitten (int lit, allrpr_proof_clauses &pcs) {
 		allrpr_mark (lit, pcs) |= IN_KITTEN;
 	}
-	/*
-	inline void Internal::set_reason_added (int lit, allrpr_proof_clauses &pcs) {
-	 allrpr_mark (lit, pcs) |= REASON_ADDED; 
-	}
-	*/
-
+	
 	inline void Internal::set_base (int lit, allrpr_proof_clauses &pcs) {
 	 allrpr_mark (lit, pcs) |= BASE; 
 	}
 
-	// ---------------------------------------------------------------------------
+	// -------------------------------------------------------------------------//
 
 	void Internal::allrpr_init_citten () {
 		assert (!citten);
@@ -98,8 +93,61 @@ namespace CaDiCaL {
 		}
 	}
 
+	// check whether kitten needs to be reset and if so clean up.
+	//
+	void Internal::allrpr_check_kitten_and_pcs () {
+		if (citten && allrpr_need_reset) {
+      // this is true if mark_garbage, mark_added or mark_removed was called
+      // on a clause for which c->added holds. All pointers should still be 
+      // valid but the Kitten clause base is still corrupted. Before resetting
+      // we need to unflag all c->added clauses and clear the clause map.
+      // If collection happened, the flags and reasons would've been cleared 
+      // directly before garbage collection.
+      if (!(allrpr_last_reduction < stats.reductions)) {
+        LOG ("Some clause in Kitten is out of sync. Resetting...");
+        allrpr_clear_added_flags ();
+      }
+      else {
+        LOG ("Garbage collection ran previously. Resetting...");
+        allrpr_last_reduction = stats.reductions;  
+      }
+      allrpr_reset_citten ();
+      allrpr_need_reset = false;        
+    }
+    if (!citten) {
+      LOG ("Initializing fresh Kitten...");
+      if (opts.allrprreport)
+        printf ("\nKIT Kitten Size 0\n"); // TODO Remove
+      allrpr_init_citten ();
+      kitten_track_antecedents (citten);
+      LOG ("Clearing added flags and allrpr_pcs.reasons...");
+      // Here we also need to clear flags and reasons because Kitten got reset
+      // in elim or sweep.
+      if (!allrpr_pcs.reasons.empty ())
+        for (Clause *c : allrpr_pcs.reasons) {
+          if (c->moved) {
+            LOG (c->copy, "(copy) clearing added in");
+            (c->copy)->added = false;
+          } else {
+            LOG (c, "clearing added in");
+            assert (c->added);
+            c->added = false;
+          }
+        }
+      allrpr_pcs.reasons.clear ();
+      allrpr_pcs.marks.resize (2 * max_var + 3); 
+      memset (allrpr_pcs.marks.data(), 0, marks.size ());
+      //allrpr_pcs.marks.clear (); // Clear all marks
+      allrpr_pcs.internal = this;
+      allrpr_last_size_after_reset = 0;
+    }
+	}
+
+	// Clearing the added flags in clauses that were fed to kitten.
+	// This must always be used before garbage collection, since afterwards the 
+	// pointers in allrpr_pcs.reason may be dangling
+	//
 	void Internal::allrpr_clear_added_flags () {
-		// undo the clause added flags. This doesnt work since we may have dangling references in reasons after garbage clause deletion
 		LOG ("Clearing added flags and allrpr_pcs.reasons");
 		allrpr_need_reset = true;
     for (Clause *c : allrpr_pcs.reasons) {
@@ -114,20 +162,6 @@ namespace CaDiCaL {
     }
     allrpr_pcs.reasons.clear ();
     LOG ("allrpr_pcs.reason.size () = %zu", allrpr_pcs.reasons.size ());
-	}
-
-	void Internal::allrpr_shuffle(vector<int> &vec) {
-		LOG (vec ,"shuffling");
-		START (allrprshuffle);
-		assert (vec.size ());
-		Random random;
-    const int n = (int) vec.size ();
-    for (int i = 0; i < n; ++i) {
-    	int j = random.pick_int (0, n - 1);
-    	std::swap(vec[i], vec[j]);
-    }
-    STOP (allrprshuffle);
-    LOG (vec, "post shuffle:");
 	}
 
 	// Sort the successfully shrunken clause in descending trail order
@@ -179,30 +213,25 @@ namespace CaDiCaL {
 		STOP (allrprreorder);
 	}
 
-	bool Internal::clause_is_qualified (Clause *c, int &prop_lit, allrpr_proof_clauses &pcs) {
+	// Checks, whether a clause is qualified for being fed into kitten.
+	// I.e. if the clause could propagate given the current set of true literals
+	// and isn't garbage. If the clause is qualified, the possibly propagating
+	// literal is written into prop_lit.
+	//
+	bool Internal::clause_is_qualified (Clause *c, int &prop_lit, const allrpr_proof_clauses &pcs) {
 		LOG (c, "Checking qualification of");
 		assert (!prop_lit);
 		if (c->garbage) {
 			LOG (c, "Not qualified garbage");
 			return false;
 		}
-		if (c == conflict) {
-			LOG (c, "Not qualified conflict");
-			return false;
-		}
 
 		// A clause would propagate, if its only non-false literal has the highest
 		// trail position among literals in the clause
-		int highest_trail = -1;
 		for (const int &lit : *c) {
 			LOG ("checking lit %d", lit);
-			Var &v = var (lit);
 			if (is_false (lit, pcs)) { // literal is falsified and (in the implication graph or implied)
 				LOG ("lit %d falsity implied", lit);
-				LOG ("lit %d marks %d", lit, allrpr_mark (lit, pcs));
-				LOG ("lit %d marks %d", -lit, allrpr_mark (-lit, pcs));
-				if (v.trail > highest_trail) // update highest trail position
-					highest_trail = v.trail; 
 				continue;
 			}
 			if (prop_lit) {
@@ -210,14 +239,6 @@ namespace CaDiCaL {
 				return false;
 			}
 			prop_lit = lit; // This may propagate, if it is the only non-false literal
-		}
-		if (!prop_lit) { // c may be completely falsified
-			LOG ("Qualified as possible conflict");
-			return true;
-		}
-		if (opts.allrprorder && val (prop_lit) && var (prop_lit).trail < highest_trail) {
-			LOG ("Not qualified due to %d not having the highest trail rank", prop_lit);
-			return false;
 		}
 		return true;
 	}
@@ -281,7 +302,11 @@ extern "C" {
 	}
 
 
-	// Call back for attempt minimize
+	// Lightweight callback function that just extracts the final learned clause
+	// for checking whether and in which way minimization was successful.
+	// This is used in allrpr_kitten_attempt_minimize, where we don't care about 
+	// producing the LRAT proof yet
+	//
 	static void get_final_from_core (void *state, bool learned, 
 																	 size_t clause_size, const unsigned *elits) {
 		if (!learned) {
@@ -304,8 +329,11 @@ extern "C" {
 	}
 
 } // end extern "C"
-
 	
+	// Feeding a clause to kitten and logging it in pcs.reasons.
+  // The kitten clause can later on be mapped to a cadical clause by using the
+	// given id, which corresponds to the index in pcs.reasons.
+	//
 	inline void Internal::feed_reason (allrpr_proof_clauses &pcs, Clause *reason) {
 		LOG (reason, "Adding reason giving allrpr_id %zu", pcs.reasons.size ());
 		const unsigned id = pcs.reasons.size();
@@ -313,6 +341,10 @@ extern "C" {
 		pcs.reasons.push_back	(reason);
 	}
 
+	// Feeding a unit clause to kitten. Here we do not log this into the 
+	// pcs.reasons, since there is no corresponding cadical clause in the sense of 
+	// a struct Clause. We directly attach the unit_id in this case.
+	//
 	inline void Internal::feed_unit_reason (int unit) {
 		int64_t id = unit_id (unit);
 		assert (unit_id (unit));
@@ -320,10 +352,14 @@ extern "C" {
 		citten_clause_with_id (citten, id, 1, &unit);
 	}
 
-
-	// try to collect all necessary reasons and propagating literals without using the flags
+	// Sets the literals in the implication graph between the learned clause and
+	// the conflict as base literals and to true.
+	// The literals in the conflict clause are all falsified and therefore, their
+	// negation is set to true. The same is done for the learned clause literals.
+	// 
+	// 
 	void Internal::allrpr_mark_graph (vector<int> &base, allrpr_proof_clauses &pcs) {
-		LOG ("ALLRPR MARK GRAPH V2");
+		LOG ("ALLRPR MARK GRAPH");
 		START (allrprcollect);
 
 		// mark all conflict clause literals negations as true
@@ -331,8 +367,8 @@ extern "C" {
 		for (const int &lit : *conflict) {
 			LOG ("setting true %d", -lit);
 			set_true (-lit, pcs);
-			set_base (lit, pcs); // TODO: remove ?
-			set_base (-lit, pcs); // TODO: remove ?
+			set_base (lit, pcs); // TODO: Check if removable or useful
+			set_base (-lit, pcs); 
 			base.push_back (-lit);
 		}
 		// mark all learned clause literals negations as target
@@ -341,8 +377,8 @@ extern "C" {
 		for (const int &lit : clause) {
 			LOG ("setting target %d", -lit);
 			set_target (-lit, pcs);
-			set_base (-lit, pcs); // TODO: remove ?
-			set_base (lit, pcs); // TODO: remove ?
+			set_base (-lit, pcs);
+			set_base (lit, pcs); // TODO: Check if removable or useful
 		}
 		const auto &t = &trail;
 		int i = t->size ();	
@@ -371,9 +407,8 @@ extern "C" {
 				if (!is_true (-rlit, pcs)) {
 					LOG ("marking %d as true", -rlit);
 					set_true (-rlit, pcs); // falsified literal, propagating lit
-					
-					set_base (-rlit, pcs); // TODO: remove ?
-					set_base (rlit, pcs); // TODO: remove ?
+					set_base (-rlit, pcs);
+					set_base (rlit, pcs); // TODO: Check if removable or useful
 					base.push_back (-rlit);			
 				}
 			}
@@ -382,304 +417,19 @@ extern "C" {
 		STOP (allrprcollect);
 	}
 
-	/*
-	void Internal::allrpr_collect_more (vector<int> &base, allrpr_proof_clauses &pcs) {
-		LOG ("ALLRPR COLLECT MORE");
-		START (allrprcollect);
-		vector<Clause*> unmarkcls;
-		vector<int> work;
-		int64_t basecls = 0;
-		int64_t extracls = 0;
-		// init work stack in order of assumption
-
-		LOG (conflict, "Adding conflict");
-		feed_reason (pcs, conflict);
-		assert (!conflict->added);
-		conflict->added = true;
-		unmarkcls.push_back (conflict);
-		pcs.is_extra.push_back (0);  // TODO: remove later on
-		basecls++;
-		// add base reasons and queue them up for work
-		LOG (base, "Adding base reasons for");
-		for (const int &lit : base) {
-			Var &v = var (lit);
-			if (!v.level) {
-				basecls++;
-				feed_unit_reason (lit);
-				set_reason_added (lit, pcs);
-			} else if (v.reason) {
-				basecls++;
-				feed_reason (pcs, v.reason);
-				set_reason_added (lit, pcs);
-				pcs.is_extra.push_back (0);
-				assert (!v.reason->added);
-				v.reason->added = true;
-				unmarkcls.push_back (v.reason);
-			} else {
-				LOG ("No reason for %d", lit);
-			}
-			work.push_back (lit);
-			set_worked (lit, pcs);
-		}
-
-		LOG (work, "initialized work to");
-		// Now start at the end of work and look for further propagations given
-		// the valuations by the marks. If a literal could propagate, we push it 
-		// onto work and mark it.
-		while (!work.empty ()) {
-			int lit = work.back ();
-			assert (is_worked (lit, pcs));
-			work.pop_back ();
-			LOG ("working on %d", lit);
-
-			LOG ("Checking watch list of %d", -lit);
-			Watches &ws = watches (-lit);
-			const const_watch_iterator eow = ws.end ();
-			watch_iterator j = ws.begin ();
-
-			while (j != eow) {
-				const Watch w = *j++;
-				int prop_lit = 0;
-				if (w.size > 4) // TODO: remove after tests
-					continue;
-				if (w.clause->added) {
-					LOG (w.clause, "Skipping already added clause");
-					continue;
-				}
-				if (clause_is_qualified (w.clause, prop_lit, pcs)) {
-					if (!prop_lit) {
-						LOG (w.clause, "Adding possibly conflict");
-						feed_reason (pcs, w.clause);
-						pcs.is_extra.push_back (1);
-						extracls++;
-						w.clause->added = true;
-						unmarkcls.push_back (w.clause);
-						continue;
-					} 
-					else {
-						Var &vnf = var (prop_lit);
-						if (vnf.reason != w.clause) {
-							LOG (w.clause, "Adding possibly propagating %d", prop_lit);
-							feed_reason (pcs, w.clause);
-							pcs.is_extra.push_back (1);
-							extracls++;
-							w.clause->added = true;
-							unmarkcls.push_back (w.clause);
-						} 
-						else if (!is_reason_added (prop_lit, pcs)) {
-							LOG (w.clause, "Adding reason for possibly propagating %d", prop_lit);
-							set_reason_added (prop_lit, pcs);
-							feed_reason (pcs, w.clause);
-							pcs.is_extra.push_back (1);
-							extracls++;
-							w.clause->added = true;
-							unmarkcls.push_back (w.clause);
-						}
-						// Mark and push to work, if wasn't work already
-						if (!is_true (prop_lit, pcs)) {
-							LOG ("%d is not set to true. setting true flag...", prop_lit);
-							set_true (prop_lit, pcs);
-						}
-						// if the watch list of the literal wasn't yet traversed or isn't up for traversal queue it up for work
-						if (!is_worked (prop_lit, pcs)) {
-							LOG ("%d wasn't in work yet. pushing to work...", prop_lit);
-							work.push_back (prop_lit);
-							set_worked (prop_lit, pcs);
-						}
-					} 
-				}
-			}
-		}
-		LOG ("ALLRPR COLLECT MORE FINISHED COLLECTING %lld clauses", basecls + extracls);
-		stats.allrpr.added += basecls + extracls;
-		stats.allrpr.baseadded += basecls;
-		stats.allrpr.extradded += extracls;
-		// clean up
-		for (Clause* c : unmarkcls) {
-			assert (c->added);
-			c->added = 0;
-		}
-		STOP (allrprcollect);
-	}
-	*/
-	// DEPRECATED
-	// Also filter clauses that have dist > k, where dist is the number of non base lits in the clause
-	// These clauses are also marked as added but aren't added to kitten
-	/*
+	// Collect extra clauses starting from base. Filter clauses that contain too
+	// many non-base literals, i.e. are further away from the present 
+	// implication graph.
+	//
 	void Internal::allrpr_collect_more_dist_filter (vector<int> &base, allrpr_proof_clauses &pcs) {
 		LOG ("ALLRPR COLLECT MORE");
 		START (allrprcollect);
 		vector<Clause*> unmarkcls;
 		vector<int> work;
-		int64_t old_kitten_size = (int64_t) pcs.reasons.size ();
-		int64_t basecls = 0;
-		int64_t extracls = 0;
-		int64_t wouldbase = 0;
-		int64_t wouldextra = 0;
-		// init work stack in order of assumption
-		if (!conflict->added) {
-			LOG (conflict, "Adding conflict");
-			feed_reason (pcs, conflict);
-			assert (!conflict->added);
-			conflict->added = true;
-			//unmarkcls.push_back (conflict);
-			pcs.is_extra.push_back (0);  // TODO: remove later on
-			basecls++;
-		} else {
-			LOG (conflict, "skipping already added");
-			wouldbase++;
-		}
-		// add base reasons and queue them up for work
-		LOG (base, "Adding base reasons for");
-		for (const int &lit : base) {
-			Var &v = var (lit);
-			if (!v.level) { // TODO: Find a good way to not feed units multiple times, e.g. once feed all units if kitten is empty
-				basecls++;
-				feed_unit_reason (lit);
-				set_reason_added (lit, pcs);
-			} else if (v.reason && !v.reason->added) {
-				basecls++;
-				feed_reason (pcs, v.reason);
-				set_reason_added (lit, pcs);
-				pcs.is_extra.push_back (0);
-				assert (!v.reason->added);
-				v.reason->added = true;
-				//unmarkcls.push_back (v.reason);
-			} 
-			else if (v.reason && v.reason->added) {
-				LOG (v.reason, "skipping already added");
-				wouldbase++;
-			}
-			else {
-				LOG ("No reason for %d", lit);
-			}
-			work.push_back (lit);
-			set_worked (lit, pcs);
-		}
-
-		LOG (work, "initialized work to");
-		// Now start at the end of work and look for further propagations given
-		// the valuations by the marks. If a literal could propagate, we push it 
-		// onto work and mark it.
-		while (!work.empty ()) {
-			int lit = work.back ();
-			assert (is_worked (lit, pcs));
-			work.pop_back ();
-			LOG ("working on %d", lit);
-
-			LOG ("Checking watch list of %d", -lit);
-			Watches &ws = watches (-lit);
-			const const_watch_iterator eow = ws.end ();
-			watch_iterator j = ws.begin ();
-
-			while (j != eow) {
-				const Watch w = *j++;
-				int prop_lit = 0;
-				if (w.size > 4) // TODO: remove after tests
-					continue;
-				if (w.clause->added) {
-					LOG (w.clause, "Skipping already added clause");
-					wouldextra++;
-					continue;
-				}
-				// Filter clauses whose dist is too high -------------------------------
-				int nb_in_c = 0;
-				for (const int &l : *w.clause) {
-					if (!is_base (l, pcs))
-						nb_in_c++;
-				}
-				if (nb_in_c > opts.allrprdist) { // TODO: If this is something, make it a option
-					LOG (w.clause, "skipping too high dist");
-					w.clause->added = true; // mark added so it is skipped in the future
-					unmarkcls.push_back (w.clause);
-					continue;
-				}
-				// ---------------------------------------------------------------------
-
-				if (clause_is_qualified (w.clause, prop_lit, pcs)) {
-					if (!prop_lit) {
-						LOG (w.clause, "Adding possibly conflict");
-						feed_reason (pcs, w.clause);
-						pcs.is_extra.push_back (1);
-						extracls++;
-						w.clause->added = true;
-						//unmarkcls.push_back (w.clause);
-						continue;
-					} 
-					else {
-						Var &vnf = var (prop_lit);
-						if (vnf.reason != w.clause) {
-							LOG (w.clause, "Adding possibly propagating %d", prop_lit);
-							feed_reason (pcs, w.clause);
-							pcs.is_extra.push_back (1);
-							extracls++;
-							w.clause->added = true;
-							//unmarkcls.push_back (w.clause);
-						} 
-						else if (!is_reason_added (prop_lit, pcs)) {
-							LOG (w.clause, "Adding reason for possibly propagating %d", prop_lit);
-							set_reason_added (prop_lit, pcs);
-							feed_reason (pcs, w.clause);
-							pcs.is_extra.push_back (1);
-							extracls++;
-							w.clause->added = true;
-							//unmarkcls.push_back (w.clause);
-						}
-						// Mark and push to work, if wasn't work already
-						if (!is_true (prop_lit, pcs)) {
-							LOG ("%d is not set to true. setting true flag...", prop_lit);
-							set_true (prop_lit, pcs);
-						}
-						// if the watch list of the literal wasn't yet traversed queue it up for work
-						if (!is_worked (prop_lit, pcs)) {
-							LOG ("%d wasn't in work yet. pushing to work...", prop_lit);
-							work.push_back (prop_lit);
-							set_worked (prop_lit, pcs);
-						}
-					} 
-				}
-			}
-		}
-		LOG ("ALLRPR COLLECT MORE FINISHED COLLECTING %lld clauses", basecls + extracls);
-		LOG ("pcs.reasons (size: %zu):", pcs.reasons.size ());
-		if (opts.allrprreport) {
-			printf ("KIT added baseclauses %lld\n", basecls);
-			printf ("KIT skipped baseclauses %lld\n", wouldbase);
-			printf ("KIT added extraclauses %lld\n", extracls);
-			printf ("KIT skipped extraclauses %lld\n", wouldextra);
-		}
-		// Idea: Reset if the clauses already in kitten are probably not relevant
-		// to the current conflict
-		if (old_kitten_size > 2 * (extracls + wouldextra)) {
-			if (opts.allrprreport)
-				printf ("KIT force reset\n");
-			allrpr_need_reset = true;
-		}
-
-		stats.allrpr.added += basecls + extracls;
-		stats.allrpr.baseadded += basecls;
-		stats.allrpr.extradded += extracls;
-		// clean up
-		for (Clause* c : unmarkcls) {
-			assert (c->added);
-			c->added = false;
-		}
-		STOP (allrprcollect);
-	}
-	*/
-
-	// Also filter clauses that have dist > k, where dist is the number of non base lits in the clause
-	// These clauses are also marked as added but aren't added to kitten
-	void Internal::allrpr_collect_more_dist_filterV2 (vector<int> &base, allrpr_proof_clauses &pcs) {
-		LOG ("ALLRPR COLLECT MORE");
-		START (allrprcollect);
-		vector<Clause*> unmarkcls;
-		vector<int> work;
-		int64_t old_kitten_size = (int64_t) pcs.reasons.size ();
-		int64_t basecls = 0;
-		int64_t extracls = 0;
-		int64_t wouldbase = 0;
-		int64_t wouldextra = 0;
+		const int old_kitten_size = (int) pcs.reasons.size ();
+		int basecls = 0;
+		int extracls = 0;
+		int wouldbase = 0;
 		// init work stack in order of assumption
 		if (!conflict->added) {
 			LOG (conflict, "Adding conflict");
@@ -744,7 +494,6 @@ extern "C" {
 					continue;
 				if (w.clause->added) {
 					LOG (w.clause, "Skipping already added clause");
-					wouldextra++;
 					continue;
 				}
 				// Filter clauses whose dist is too high -------------------------------
@@ -798,26 +547,29 @@ extern "C" {
 		}
 		LOG ("ALLRPR COLLECT MORE FINISHED COLLECTING %lld clauses", basecls + extracls);
 		LOG ("pcs.reasons (size: %zu):", pcs.reasons.size ());
+		stats.allrpr.added += basecls + extracls;
+		stats.allrpr.baseadded += basecls;
+		stats.allrpr.extradded += extracls;
 		if (opts.allrprreport) {
-			printf ("KIT added baseclauses %lld\n", basecls);
-			printf ("KIT skipped baseclauses %lld\n", wouldbase);
-			printf ("KIT added extraclauses %lld\n", extracls);
-			printf ("KIT skipped extraclauses %lld\n", wouldextra);
+			printf ("KIT added baseclauses %d\n", basecls);
+			printf ("KIT skipped baseclauses %d\n", wouldbase);
+			printf ("KIT added extraclauses %d\n", extracls);
 		}
-		if (!old_kitten_size) { // First time clauses are added after a reset
+
+		// Update if fresh kitten
+		if (!old_kitten_size) {
 			allrpr_last_size_after_reset = basecls + extracls;
 		} 
+
 		// Further clauses were added. Maybe reset kitten if too many new clauses
 		else if ((old_kitten_size + basecls + extracls) > 3 * allrpr_last_size_after_reset) { 
 			if (opts.allrprreport) {
-				printf ("KIT last size after reset %lld\n", allrpr_last_size_after_reset);
+				printf ("KIT last size after reset %d\n", allrpr_last_size_after_reset);
 				printf ("KIT force reset\n");
 			}
 			allrpr_need_reset = true;
 		}
-		stats.allrpr.added += basecls + extracls;
-		stats.allrpr.baseadded += basecls;
-		stats.allrpr.extradded += extracls;
+
 		// clean up
 		for (Clause* c : unmarkcls) {
 			assert (c->added);
@@ -826,13 +578,16 @@ extern "C" {
 		STOP (allrprcollect);
 	}
 
-
+	// Build the LRAT chain(s) for the core learned clause. For intermediate 
+	// learned clauses the chains also have to be built and logged before finally,
+	// later in analyze () the LRAT chain for the core learned clause is logged.
+	//
 	void Internal::allrpr_build_lrat (allrpr_proof_clauses &pcs) {
 		LOG ("ALLRPR BUILD LRAT");
 		LOG ("Core size: %zu", pcs.proof_clauses.size ());
 		START (allrprlrat);
-		std::vector<allrpr_proof_clause> &core = pcs.proof_clauses;
-		allrpr_proof_clause &final_clause = core[core.size() - 1];
+		auto &core = pcs.proof_clauses;
+		const auto &final_clause = core.back();
 		LOG (final_clause.literals, "final clause of size %zu has literals:",final_clause.literals.size ());
 		// found weird trace where the learned clause already existed
 		// here the chain is just the existing clauses id
@@ -843,14 +598,14 @@ extern "C" {
 			return;
 		}
 
-		unsigned last_learned_id = final_clause.kitten_id;
+		const unsigned last_learned_id = final_clause.kitten_id;
 		for (auto &pc: core) {
 			if (!pc.learned) // allready proven clause (known to cadical)
 				continue;
 			LOG (pc.literals, "deriving LRAT proof for ");
 			assert (pc.cadical_id == INVALID64);
 			// build chain of cadical ids
-			for (auto &kitten_id : pc.chain) {
+			for (const auto &kitten_id : pc.chain) {
 				int64_t id = 0;
 				for (const auto &cpc : core) { // find corresponding clause with kitten_id
 					if (cpc.kitten_id != kitten_id)
@@ -876,15 +631,21 @@ extern "C" {
 		STOP (allrprlrat);
 	}
 
-	void Internal::allrpr_delete_intermediate_lrat (allrpr_proof_clauses &pcs) {
+	// Deletion of intermediate learned clause chains after the final 
+	// core learned clauses proof is logged.
+	//
+	void Internal::allrpr_delete_intermediate_lrat (const allrpr_proof_clauses &pcs) {
 		START (allrprlrat);
 		LOG ("ALLRPR DELETE INTERMEDIATE LRAT");
 
+		const auto &core = pcs.proof_clauses;
+
 		// skip last learned clause, which is stored at the end of proof_clauses
-		for (size_t i = 0; i < pcs.proof_clauses.size () - 1; i++) {
-			allrpr_proof_clause &pc = pcs.proof_clauses[i];
+		for (size_t i = 0; i + 1 < core.size (); i++) {
+			const auto &pc = core[i];
 			if (!pc.learned)
 				continue;
+
 			LOG ("Deleting clause[%lld]", pc.cadical_id);
 			proof->delete_clause (pc.cadical_id, true, pc.literals);
 		}
@@ -892,25 +653,36 @@ extern "C" {
 		STOP (allrprlrat);
 	} 
 
- 
-	// Reconstructs a LRAT chain for the learned clause in internal->clause.
+ 	// Checks if various preconditions for further minimization attempts are met
+	//
+	bool Internal::allrpr_try_minimize (int glue, int size, const int old_size) const {
+		const bool sizequalified = size < lim.keptsize || size < opts.allrprsizethresh;
+		const bool gluequalified = glue <= lim.keptglue || glue <= tier2[false];
+		// the lrat chain already contains the necessary base reasons so its size
+		// can be used as a filter. E.g. linked_list_swap_contents*.cnf problems 
+		// produce conflict with huge implication graphs. These conflicts should be
+		// skipped because using kitten here will slow down the solver immensely
+		const bool basesizequalified = (int) lrat_chain.size () < opts.allrprbasethresh;
+		return (!opts.allrprgluethresh || gluequalified) &&
+					 (!opts.allrprfiltershrink || old_size > size) &&
+					 basesizequalified && sizequalified && size > 1;
+	}
+
+	// Called as the final round of attempted minimization. Here we finally also
+	// produce the 
 	// 
-	void Internal::allrpr_kitten_catch_rat (int &uip, allrpr_proof_clauses &pcs) {
+	void Internal::allrpr_kitten_catch_rat (int uip, allrpr_proof_clauses &pcs) {
 		START (allrprsolve);
 		assert (citten);
 
-		// Kitten is now fed with enough clauses.
-		// We just need to assume the negation of the learned clause.
-		// Some of the assumptions should then fail resulting in a proof of clause
-		if (uip) { // if !uip then the empty clause was already derived. we need to retrace the core though
+		// assume the negation of the learned clause, which should unsatisfy the 
+		// conflict clause.
+		// if !uip then the empty clause was already derived.
+		if (uip) { 
 			LOG (clause, "LEARNED CLAUSE: ");
 			for (const auto &lit: clause) {
       	LOG ("KITTEN ASSUME %d", -lit);
       	kitten_assume_signed (citten, -lit);
-    	}
-    	if (opts.allrprshufflec) {
-    		LOG ("Shuffling klauses...");
-    		kitten_shuffle_clauses (citten);
     	}
     	LOG ("Solving kitten...");
 			kitten_solve (citten);
@@ -919,7 +691,8 @@ extern "C" {
 			LOG ("Computing clausal core...");
 			kitten_compute_clausal_core (citten, nullptr);	
 		}
-		
+		// In each case we need to (re)trace the core. I.e. retracing if the empty
+		// clause was already derived in an earlier minimization try
 		LOG ("Tracing clausal core...");
 		kitten_trace_core (citten, &pcs, extract_clause_from_kitten);
 
@@ -927,13 +700,16 @@ extern "C" {
 		STOP (allrprsolve);
 	}
 
-	// 
-	// Test for retry
+	// Lightweight version of allrpr_kitten_catch_rat. Used for the first k tries
+	// at minimization, before finally the LRAT chain is also extracted
 	//  
-	void Internal::allrpr_kitten_attempt_minimize (allrpr_mini_pcs &mini_pcs, int &attempt) {
+	void Internal::allrpr_kitten_attempt_minimize (allrpr_mini_pcs &mini_pcs, int attempt) {
 		START (allrprsolve);
 		assert (citten);
 
+		#ifndef LOGGING
+		(void) attempt;
+		#endif
 		LOG (clause, "Kitten Minimization Attempt %d on", attempt);
 
 		for (const auto &lit: clause) {
@@ -942,16 +718,34 @@ extern "C" {
 		}
 
 		kitten_shuffle_assumptions (citten);
-
-		if (opts.allrprshufflec) {
-			kitten_shuffle_clauses (citten);
-		}
-
 		kitten_solve (citten);
-
 		kitten_compute_clausal_core (citten, nullptr);
 		kitten_traverse_core_clauses (citten, &mini_pcs, get_final_from_core);
+
 		STOP (allrprsolve);
+	}
+
+	// attempt k rounds of minimization
+	void Internal::allrpr_attempt_minimize_k_times (
+		int &uip, allrpr_mini_pcs &mini_pcs, vector<int> &final, int &mini_again) {
+		
+		for (int i = 0; i < opts.allrprretries; i++) {
+      if (clause.size () == 0)
+        break;
+      allrpr_kitten_attempt_minimize (mini_pcs, i);
+      LOG (mini_pcs.final_clause, "clause after attempt %i", i);
+      if (mini_pcs.final_clause.size () < clause.size ()) { // successful further further
+        mini_again++;
+        if (opts.allrprreport)
+          printf ("KIT minimized in round %d\n", i);
+        }
+      if (!final.empty ()) 
+        clause = mini_pcs.final_clause;
+      else { // UNSAT, derived empty clause. allrpr_kitten_catch_rat will now just retrace core
+        uip = 0;
+        break;
+      }
+    }
 	}
 
 	// update stats after successful further minimization
@@ -1036,5 +830,38 @@ extern "C" {
 		stats.allrpr.extra4inminicore += quarternary;
 		stats.allrpr.extragr4inminicore += grquarternary;
 	}
+
+	// Updates potentially changed glue value and glue related statistics
+	//
+	void Internal::allrpr_update_glue (int uip, int& glue) {
+		const int old_glue = glue;
+		glue = 0;
+		int lowest_level = var (uip).level;
+		for (const int &lit : clause) { // clause is sorted by trail rank
+			if (var (lit).level < lowest_level) {
+				lowest_level = var (lit).level;
+				glue++;
+			}
+		}
+		const int improvement = old_glue - glue;
+		if (improvement) {
+			LOG ("glue improved by from %d to %d", improvement, old_glue, glue);
+			stats.allrpr.nimprovedglue++;
+			stats.allrpr.simprovedglue += improvement;
+
+			const bool was_tier1 = old_glue <= tier1[false];
+			const bool was_tier2 = old_glue <= tier2[false];
+			if (!was_tier1 && glue <= tier1[false]) {
+				LOG ("clause lifted to tier 1");
+				stats.allrpr.liftedtier1++;
+			}
+			else if (!was_tier2 && glue <= tier2[false]) {
+				LOG ("clause lifted to tier 2");
+				stats.allrpr.liftedtier2++;
+			}
+		}
+	}
+
+
 
 }	

@@ -26,13 +26,11 @@ OPTION( allrprbasethresh,1e3,  0,2e9,0,0,1, "limit on allowed base reasons for t
 OPTION( allrprdist,        0,  0,1e2,0,0,1, "limit on allowed extra clause non base literal count") \
 OPTION( allrprfiltershrink,0,  0,  1,0,0,1, "only try further minimization if shrink was successful") \
 OPTION( allrprgluethresh,  0,  0,  1,0,0,1, "glue threshold for trying kitten minimization (predicate likely_to_be_kept)") \
-OPTION( allrprorder,       0,  0,  1,0,0,1, "only collect propagating wrt. trail") \
-OPTION( allrprreport,      0,  0,  1,0,0,1, "print some information without logging") \
+OPTION( allrprmorestats,   0,  0,  1,0,0,0, "collect more stats") \
+OPTION( allrprreport,      0,  0,  1,0,0,0, "print some information without logging") \
 OPTION( allrprretries,     0,  0,1e3,0,0,1, "number of retries made per kitten call") \
 OPTION( allrprreverse,     0,  0,  1,0,0,1, "sort clause in descending trail order") \
 OPTION( allrprshrinkorder, 0,  0,  1,0,0,1, "sort clause by descending trail order with slice uips in the back") \
-OPTION( allrprshufflea,    1,  0,  1,0,0,1, "shuffle assumptions") \
-OPTION( allrprshufflec,    1,  0,  1,0,0,1, "shuffle clauses") \
 OPTION( allrprsizethresh,1e3,  2,1e3,0,0,1, "size threshold for trying kitten minimization") \
 OPTION( arena,             1,  0,  1,0,0,1, "allocate clauses in arena") \
 OPTION( arenacompact,      1,  0,  1,0,0,1, "keep clauses compact") \
