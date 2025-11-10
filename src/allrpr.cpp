@@ -581,6 +581,173 @@ extern "C" {
 		STOP (allrprcollect);
 	}
 
+
+// ----------------------------------------------------------------------------//
+	// Collect extra clauses starting from base. Filter clauses that contain too
+	// many non-base literals, i.e. are further away from the present 
+	// implication graph.
+	//
+	/*
+	void Internal::allrpr_collect_more_dist_filterV2 (vector<int> &base, allrpr_proof_clauses &pcs) {
+		LOG ("ALLRPR COLLECT MORE");
+		START (allrprcollect);
+		vector<Clause*> unmarkcls;
+		vector<int> work;
+		const int old_kitten_size = (int) pcs.reasons.size ();
+		int basecls = 0;
+		int extracls = 0;
+		int wouldbase = 0;
+		// init work stack in order of assumption
+		if (!conflict->added) {
+			LOG (conflict, "Adding conflict");
+			feed_reason (pcs, conflict);
+			assert (!conflict->added);
+			conflict->added = true;
+			pcs.is_extra.push_back (0);  // TODO: remove later on
+			basecls++;
+		} else {
+			LOG (conflict, "skipping already added");
+			wouldbase++;
+		}
+		// add base reasons and queue them up for work
+		LOG (base, "Adding base reasons for");
+		for (const int &lit : base) {
+			Var &v = var (lit);
+			if (!v.level) {
+				basecls++;
+				feed_unit_reason (lit);
+			} else if (v.reason && !v.reason->added) {
+				basecls++;
+				feed_reason (pcs, v.reason);
+				pcs.is_extra.push_back (0);
+				assert (!v.reason->added);
+				v.reason->added = true;
+			} 
+			else if (v.reason && v.reason->added) {
+				LOG (v.reason, "skipping already added");
+				wouldbase++;
+			}
+			else {
+				LOG ("No reason for %d", lit);
+			}
+			work.push_back (lit);
+			set_worked (lit, pcs);
+		}
+
+		LOG (work, "initialized work to");
+		// Now start at the end of work and look for further propagations given
+		// the valuations by the marks. If a literal could propagate, we push it 
+		// onto work and mark it.
+		size_t idx = 0;
+		while (idx++ < work.size () && extracls < opts.allrpraddthresh) {
+			int lit = work[idx];
+			assert (is_worked (lit, pcs));
+			//work.pop_back ();
+			LOG ("working on %d", lit);
+			if (is_in_kitten (lit, pcs)) {
+				LOG ("%d watch list clauses are already in kitten", -lit);
+				continue;
+			}
+			set_in_kitten (lit, pcs);
+				
+			LOG ("Checking watch list of %d", -lit);
+			Watches &ws = watches (-lit);
+			const const_watch_iterator eow = ws.end ();
+			watch_iterator j = ws.begin ();
+
+			while (j != eow) {
+				const Watch w = *j++;
+				int prop_lit = 0;
+				if (w.size > 4) // TODO: remove after tests
+					continue;
+				if (w.clause->added) {
+					LOG (w.clause, "Skipping already added clause");
+					continue;
+				}
+				// Filter clauses whose dist is too high -------------------------------
+				int nb_in_c = 0;
+				for (const int &l : *w.clause) {
+					if (!is_base (l, pcs))
+						nb_in_c++;
+				}
+				if (nb_in_c > opts.allrprdist) {
+					LOG (w.clause, "skipping too high dist");
+					w.clause->added = true; // mark added so it is skipped in the future
+					unmarkcls.push_back (w.clause);
+					continue;
+				}
+				// ---------------------------------------------------------------------
+
+				if (clause_is_qualified (w.clause, prop_lit, pcs)) {
+					if (extracls >= opts.allrpraddthresh) {
+						LOG ("Reached addition threshold of %lld", opts.allrpraddthresh);
+						break;
+					}
+					if (!prop_lit) {
+						LOG (w.clause, "Adding possibly conflict");
+						feed_reason (pcs, w.clause);
+						pcs.is_extra.push_back (1);
+						extracls++;
+						w.clause->added = true;
+						continue;
+					} 
+					else {
+						LOG (w.clause, "Adding possibly propagating %d", prop_lit);
+						feed_reason (pcs, w.clause);
+						pcs.is_extra.push_back (1);
+						extracls++;
+						w.clause->added = true;
+						
+						// Mark and push to work, if wasn't work already
+						if (!is_true (prop_lit, pcs)) {
+							LOG ("%d is not set to true. setting true flag...", prop_lit);
+							set_true (prop_lit, pcs);
+						}
+						// if the watch list of the literal wasn't yet traversed queue it up for work
+						if (!is_in_kitten (prop_lit, pcs) && !is_worked (prop_lit, pcs)) {
+							LOG ("%d wasn't in work yet. pushing to work...", prop_lit);
+							work.push_back (prop_lit);
+							set_worked (prop_lit, pcs);
+						}
+					} 
+				}
+			}
+		}
+		LOG ("ALLRPR COLLECT MORE FINISHED COLLECTING %lld clauses", basecls + extracls);
+		LOG ("pcs.reasons (size: %zu):", pcs.reasons.size ());
+		stats.allrpr.added += basecls + extracls;
+		stats.allrpr.baseadded += basecls;
+		stats.allrpr.extradded += extracls;
+		if (opts.allrprreport) {
+			printf ("KIT added baseclauses %d\n", basecls);
+			printf ("KIT skipped baseclauses %d\n", wouldbase);
+			printf ("KIT added extraclauses %d\n", extracls);
+		}
+
+		// Update if fresh kitten
+		if (!old_kitten_size) {
+			allrpr_last_size_after_reset = basecls + extracls;
+		} 
+
+		// Further clauses were added. Maybe reset kitten if too many new clauses
+		else if ((old_kitten_size + basecls + extracls) > 3 * allrpr_last_size_after_reset) { 
+			if (opts.allrprreport) {
+				printf ("KIT last size after reset %d\n", allrpr_last_size_after_reset);
+				printf ("KIT force reset\n");
+			}
+			allrpr_need_reset = true;
+		}
+
+		// clean up
+		for (Clause* c : unmarkcls) {
+			assert (c->added);
+			c->added = false;
+		}
+		STOP (allrprcollect);
+	}
+	*/
+// ----------------------------------------------------------------------------//
+
 	// Build the LRAT chain(s) for the core learned clause. For intermediate 
 	// learned clauses the chains also have to be built and logged before finally,
 	// later in analyze () the LRAT chain for the core learned clause is logged.
