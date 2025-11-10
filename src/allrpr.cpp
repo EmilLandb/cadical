@@ -96,7 +96,7 @@ namespace CaDiCaL {
 	// check whether kitten needs to be reset and if so clean up.
 	//
 	void Internal::allrpr_check_kitten_and_pcs () {
-		if (citten && allrpr_need_reset) {
+		if (citten && allrpr_need_reset) { // && citten
       // this is true if mark_garbage, mark_added or mark_removed was called
       // on a clause for which c->added holds. All pointers should still be 
       // valid but the Kitten clause base is still corrupted. Before resetting
@@ -111,6 +111,7 @@ namespace CaDiCaL {
         LOG ("Garbage collection ran previously. Resetting...");
         allrpr_last_reduction = stats.reductions;  
       }
+      kitten_clear (citten);
       allrpr_reset_citten ();
       allrpr_need_reset = false;        
     }
@@ -309,22 +310,24 @@ extern "C" {
 	//
 	static void get_final_from_core (void *state, bool learned, 
 																	 size_t clause_size, const unsigned *elits) {
-		if (!learned) {
-			return;
-		}
+		//if (!learned) {
+		//	return;
+		//}
 
 		allrpr_mini_pcs *mini_pcs = (allrpr_mini_pcs *) state;
 		Internal *internal = mini_pcs->internal;
 		std::vector<int> &final = mini_pcs->final_clause;
-		
-		final.clear ();
+		// In some weird situations the failing clause already exists in cadical
+		mini_pcs->is_learned = learned;
 
+		final.clear ();
 		const unsigned *end = elits + clause_size;
 		for (const unsigned *p = elits; p != end; p++) {
 			final.push_back (internal->citten2lit (*p));
 		}
+		
 	#ifdef LOGGING
-		LOG (final, "learned");
+		LOG (final, "failing clause");
 	#endif
 	}
 
@@ -635,9 +638,8 @@ extern "C" {
 	// core learned clauses proof is logged.
 	//
 	void Internal::allrpr_delete_intermediate_lrat (const allrpr_proof_clauses &pcs) {
-		START (allrprlrat);
+		//START (allrprlrat);
 		LOG ("ALLRPR DELETE INTERMEDIATE LRAT");
-
 		const auto &core = pcs.proof_clauses;
 
 		// skip last learned clause, which is stored at the end of proof_clauses
@@ -650,7 +652,7 @@ extern "C" {
 			proof->delete_clause (pc.cadical_id, true, pc.literals);
 		}
 		LOG ("ALLRPR DELETE INTERMEDIATE LRAT FINISHED");
-		STOP (allrprlrat);
+		//STOP (allrprlrat);
 	} 
 
  	// Checks if various preconditions for further minimization attempts are met
@@ -674,7 +676,6 @@ extern "C" {
 	void Internal::allrpr_kitten_catch_rat (int uip, allrpr_proof_clauses &pcs) {
 		START (allrprsolve);
 		assert (citten);
-
 		// assume the negation of the learned clause, which should unsatisfy the 
 		// conflict clause.
 		// if !uip then the empty clause was already derived.
@@ -695,7 +696,6 @@ extern "C" {
 		// clause was already derived in an earlier minimization try
 		LOG ("Tracing clausal core...");
 		kitten_trace_core (citten, &pcs, extract_clause_from_kitten);
-
 		stats.allrpr.kittencalls++;
 		STOP (allrprsolve);
 	}
@@ -732,13 +732,23 @@ extern "C" {
 		for (int i = 0; i < opts.allrprretries; i++) {
       if (clause.size () == 0)
         break;
+      if (opts.allrprreport) {
+      	printf ("clause: ");
+      	for (const int &lit : clause) {
+      		printf ("%d ", lit);
+      	}
+      	printf ("\n");	
+      }
+
       allrpr_kitten_attempt_minimize (mini_pcs, i);
       LOG (mini_pcs.final_clause, "clause after attempt %i", i);
       if (mini_pcs.final_clause.size () < clause.size ()) { // successful further further
         mini_again++;
-        if (opts.allrprreport)
+        if (opts.allrprreport) {
           printf ("KIT minimized in round %d\n", i);
+        	printf ("KIT final size: %zu\n", mini_pcs.final_clause.size ());
         }
+      }
       if (!final.empty ()) 
         clause = mini_pcs.final_clause;
       else { // UNSAT, derived empty clause. allrpr_kitten_catch_rat will now just retrace core

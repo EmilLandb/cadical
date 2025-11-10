@@ -31,6 +31,7 @@ namespace CaDiCaL {
 	struct allrpr_mini_pcs {
 		Internal *internal;
 		std::vector<int> final_clause;
+		bool is_learned;
 	};
 
 }

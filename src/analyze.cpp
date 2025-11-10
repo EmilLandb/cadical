@@ -1302,7 +1302,8 @@ void Internal::analyze () {
       }
 
       #ifdef LOGGING
-      kitten_set_logging (citten);
+      if (opts.log)
+        kitten_set_logging (citten);
       #endif
 
       const int post_shrink_size = (int) clause.size ();
@@ -1311,6 +1312,7 @@ void Internal::analyze () {
       allrpr_mini_pcs mini_pcs;
       mini_pcs.internal = this;
       vector<int> &final = mini_pcs.final_clause;
+
       int minimized_again = -1; // first minimization isn't accounted for here
       // attempt minimization iteratively k times without extracting the core
       allrpr_attempt_minimize_k_times (uip, mini_pcs, final, minimized_again);
@@ -1319,8 +1321,12 @@ void Internal::analyze () {
     
       // Find out whether further minimization was achieved
       vector<int> &klause = allrpr_pcs.proof_clauses.back ().literals;
-      const int new_size = (int) klause.size ();
-
+      int new_size = (int) klause.size ();
+      if (!uip) {
+        new_size = 0;
+        klause.clear ();
+      }
+      
       // successful further minimization in last kitten call
       if (new_size < (int) clause.size ()) 
         minimized_again++;
@@ -1427,7 +1433,6 @@ void Internal::analyze () {
   int new_level = determine_actual_backtrack_level (jump);
   UPDATE_AVERAGE (averages.current.level, new_level);
   backtrack (new_level);
-
   // It should hold that (!level <=> size == 1)
   //                 and (!uip   <=> size == 0)
   // this means either we have already learned a clause => size >= 2
