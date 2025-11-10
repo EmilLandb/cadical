@@ -6,7 +6,6 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <queue>
 #include <string>
 #include <sys/types.h>
@@ -211,6 +210,18 @@ inline bool ite_flags_cond_lhs (int8_t flag) {
   return (flag & COND_LHS) == COND_LHS;
 }
 
+// std::optional is C++17 sadly
+struct my_dummy_optional {
+  LitClausePair content;
+  my_dummy_optional () : content (0, 0) {}
+  bool operator() () const { return content.current_lit; }
+  my_dummy_optional operator= (LitClausePair p) {
+    content = p;
+    return *this;
+  }
+  void reset () { content = LitClausePair (0,0);}
+};
+
 /*------------------------------------------------------------------------*/
 
 // The core structure of this algorithm: the gate. It is composed of a
@@ -256,7 +267,7 @@ struct Gate {
   bool marked : 1;
   bool shrunken : 1;
   vector<LitClausePair> pos_lhs_ids;
-  std::optional<LitClausePair> neg_lhs_ids;
+  my_dummy_optional neg_lhs_ids;
   int8_t degenerated_gate = Special_Gate::NORMAL;
   vector<int> rhs;
 
@@ -285,9 +296,9 @@ struct CompactBinary {
 };
 
 struct Hash {
-  Hash (std::array<int, 16> &ncs) : nonces (ncs) {}
-  std::array<int, 16> &nonces;
-  size_t operator() (const Gate *const g) const;
+  Hash (std::array<uint64_t, 16> &ncs) : nonces (ncs) {}
+  const std::array<uint64_t, 16> &nonces;
+  inline size_t operator() (const Gate *const g) const;
 };
 
 struct Rewrite {
@@ -303,13 +314,17 @@ struct Rewrite {
 struct Closure {
 
   Closure (Internal *i);
+  ~Closure () {
+    delete dummy_search_gate;
+  }
+  Gate *dummy_search_gate = nullptr;
 
   Internal *const internal;
   vector<Clause*> extra_clauses;
   vector<CompactBinary> binaries;
   std::vector<std::pair<size_t, size_t>> offsetsize;
   bool full_watching = false;
-  std::array<int, 16> nonces;
+  std::array<uint64_t, 16> nonces;
   typedef unordered_set<Gate *, Hash, GateEqualTo> GatesTable;
 
   vector<bool> scheduled;
@@ -364,6 +379,10 @@ struct Closure {
   int find_lrat_representative_with_marks (int lit);
   // representative in the union-find structure in the lazy equivalences
   int find_representative (int lit);
+  // representative in the union-find structure in the lazy equivalences.
+  // only useful if you do not care about proofs like during forward subsumption.
+  int find_representative_and_compress_no_proofs (int lit);
+  int find_representative_already_compressed (int lit);
   // find the representative and produce the binary clause representing the
   // normalization from the literal to the result.
   int find_representative_and_compress (int, bool update_eager = true);
@@ -469,7 +488,7 @@ struct Closure {
   void push_id_on_chain (std::vector<LRAT_ID> &chain,
                          const std::vector<LitClausePair> &c);
   void push_id_on_chain (std::vector<LRAT_ID> &chain,
-                         const std::optional<LitClausePair> &c);
+                         const my_dummy_optional &c);
   // TODO: does nothing except pushing on the stack, remove!
   void push_id_on_chain (std::vector<LRAT_ID> &chain, Rewrite rewrite, int);
   void update_and_gate_build_lrat_chain (
@@ -540,11 +559,10 @@ struct Closure {
   Gate *find_remaining_and_gate (Clause *base_clause, int lhs);
   void extract_and_gates ();
 
-  Gate *find_and_lits (const vector<int> &rhs, Gate *except = nullptr);
-  // rhs is sorted, so passing by copy
-  Gate *find_gate_lits (const vector<int> &rhs, Gate_Type typ,
+  Gate *find_and_lits (vector<int> &rhs, Gate *except = nullptr);
+  Gate *find_gate_lits (vector<int> &rhs, Gate_Type typ, // rhs unchanged but swapped back and forth
                         Gate *except = nullptr);
-  Gate *find_xor_lits (const vector<int> &rhs);
+  Gate *find_xor_lits (vector<int> &rhs);
   // not const to normalize negations, also fixes the order of the LRAT
   Gate *find_ite_gate (Gate *, bool &);
   Gate *find_xor_gate (Gate *);
@@ -632,7 +650,7 @@ struct Closure {
   void produce_rewritten_clause_lrat_and_clean (vector<LitClausePair> &,
                                                 int execept_lhs = 0,
                                                 bool = true, bool = false);
-  void produce_rewritten_clause_lrat_and_clean (optional<LitClausePair> &,
+  void produce_rewritten_clause_lrat_and_clean (my_dummy_optional &,
                                                 int execept_lhs = 0,
                                                 bool = true);
 

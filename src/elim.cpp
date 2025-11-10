@@ -1046,7 +1046,7 @@ void Internal::elim (bool update_limits) {
 #endif
 
   // Make sure there was a complete subsumption phase since last
-  // elimination including vivification etc.
+  // elimination
   //
   if (last.elim.subsumephases == stats.subsumephases)
     subsume ();

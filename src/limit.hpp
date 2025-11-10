@@ -16,6 +16,7 @@ struct Limit {
   int64_t decisions;     // decision limit if non-negative
   int64_t preprocessing; // limit on preprocessing rounds
   int64_t localsearch;   // limit on local search rounds
+  int64_t ticks;        // ticks limit if non-negative
 
   int64_t compact;   // conflict limit for next 'compact'
   int64_t condition; // conflict limit for next 'condition'
@@ -89,7 +90,7 @@ struct Last {
   } transred;
   struct {
     int64_t ticks;
-  } sweep, vivify, probe;
+  } backbone, probe, sweep, vivify, walk;
   struct {
     int64_t fixed, subsumephases, marked;
   } elim;
@@ -125,6 +126,7 @@ struct Inc {
   int64_t stabilize;     // base ticks limit after first mode switch
   int64_t conflicts;     // next conflict limit if non-negative
   int64_t decisions;     // next decision limit if non-negative
+  int64_t ticks;         // next ticks limit if non-negative
   int64_t preprocessing; // next preprocessing limit if non-negative
   int64_t localsearch;   // next local search limit if non-negative
   Inc ();
@@ -155,6 +157,8 @@ struct Inc {
     last.NAME.ticks = TICKS; \
     const int64_t NEW_LIMIT = OLD_LIMIT + DELTA; \
     LIMIT = NEW_LIMIT; \
+  VERBOSE (2, "new ticks limit %" PRId64 "= %" PRId64 " + %f * %" PRId64, \
+    NEW_LIMIT, OLD_LIMIT, EFFORT, REFERENCE); \
   } while (0)
 
 } // namespace CaDiCaL

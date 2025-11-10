@@ -48,7 +48,7 @@ Internal::Internal ()
   memset (dummy_binary, 0, bytes);
   dummy_binary->size = 2;
 
-  static_assert (max_used == (1 << USED_SIZE) - 1);
+  /*with C++17: static_*/assert (max_used == (1 << USED_SIZE) - 1);
 }
 
 Internal::~Internal () {
@@ -621,9 +621,19 @@ void Internal::init_search_limits () {
     LOG ("no limit on decisions");
   } else {
     lim.decisions = stats.decisions + inc.decisions;
-    LOG ("conflict limit after %" PRId64 " decisions at %" PRId64
+    LOG ("decision limit after %" PRId64 " decisions at %" PRId64
          " decisions",
          inc.decisions, lim.decisions);
+  }
+
+  if (inc.ticks < 0) {
+    lim.ticks = -1;
+    LOG ("no limit on ticks");
+  } else {
+    lim.ticks = stats.ticks.search[0] + stats.ticks.search[1] + inc.ticks;
+    LOG ("ticks limit after %" PRId64 " ticks at %" PRId64
+         " ticks",
+         inc.ticks, lim.ticks);
   }
 
   /*----------------------------------------------------------------------*/
@@ -752,6 +762,7 @@ void Internal::preprocess_quickly (bool always) {
 
   if (extract_gates (true))
     decompose ();
+  binary_clauses_backbone ();
 
   if (sweep ())
     decompose ();
@@ -880,7 +891,11 @@ int Internal::local_search_round (int round) {
   else
     limit = LONG_MAX;
 
-  int res = walk_round (limit, true);
+  int res;
+  if (opts.walkfullocc)
+    res = walk_full_occs_round (limit, true);
+  else
+    res = walk_round (limit, true);
 
   assert (localsearching);
   localsearching = false;

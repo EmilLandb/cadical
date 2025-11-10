@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <variant>
 
 // Less common 'C' header.
 
@@ -102,6 +103,7 @@ extern "C" {
 #include "veripbtracer.hpp"
 #include "version.hpp"
 #include "vivify.hpp"
+#include "walk.hpp"
 #include "watch.hpp"
 
 // c headers
@@ -116,6 +118,7 @@ using namespace std;
 
 struct Coveror;
 struct External;
+struct WalkerFO;
 struct Walker;
 class Tracer;
 class FileTracer;
@@ -154,6 +157,7 @@ struct Internal {
     TRANSRED = (1 << 15),
     VIVIFY = (1 << 16),
     WALK = (1 << 17),
+    BACKBONE = (1 << 18),
   };
 
   bool in_mode (Mode m) const { return (mode & m) != 0; }
@@ -307,7 +311,8 @@ struct Internal {
   Internal *internal; // proxy to 'this' in macros
   External *external; // proxy to 'external' buddy in 'Solver'
 
-  static constexpr unsigned max_used = 31; // must fit into the header of the clause!
+  static constexpr unsigned max_used =
+      31; // must fit into the header of the clause!
   /*----------------------------------------------------------------------*/
 
   // Asynchronous termination flag written by 'terminate' and read by
@@ -620,7 +625,18 @@ struct Internal {
     assert (lit != blit);
     Watches &ws = watches (lit);
     ws.push_back (Watch (blit, c));
+    assert (c->literals[0] == lit || c->literals[1] == lit);
     LOG (c, "watch %d blit %d in", lit, blit);
+  }
+
+  // Watch literal 'lit' in clause with blocking literal 'blit'.
+  // Inlined here, since it occurs in the tight inner loop of 'propagate'.
+  //
+  inline void watch_binary_literal (int lit, int blit, Clause *c) {
+    assert (lit != blit);
+    Watches &ws = watches (lit);
+    ws.push_back (Watch (true, blit, c));
+    LOG (c, "watch binary %d blit %d in", lit, blit);
   }
 
   // Add two watches to a clause.  This is used initially during allocation
@@ -714,6 +730,7 @@ struct Internal {
   void search_assign_driving (int lit, Clause *reason);
   void search_assign_external (int lit);
   void search_assume_decision (int decision);
+  static Clause *decision_reason;
   void assign_unit (int lit);
   int64_t cache_lines (size_t bytes) { return (bytes + 127) / 128; }
   int64_t cache_lines (size_t n, size_t bytes) {
@@ -866,7 +883,11 @@ struct Internal {
   void renotify_full_trail ();
 
   // adds the assigned literals to assigned
-  void renotify_full_trail_between_trail_pos (int start_level, int end_level, int propagator_level, std::vector<int> &assigned, bool start_new_level);
+  void renotify_full_trail_between_trail_pos (int start_level,
+                                              int end_level,
+                                              int propagator_level,
+                                              std::vector<int> &assigned,
+                                              bool start_new_level);
   void connect_propagator ();
   void mark_garbage_external_forgettable (int64_t id);
   bool is_external_forgettable (int64_t id);
@@ -893,7 +914,8 @@ struct Internal {
   //
   void clear_phases (vector<signed char> &); // reset argument to zero
   void copy_phases (vector<signed char> &);  // copy 'saved' to argument
-  void save_assigned_phases (vector<signed char> &);  // save assigned literals to argument
+  void save_assigned_phases (
+      vector<signed char> &); // save assigned literals to argument
 
   // Resetting the saved phased in 'rephase.cpp'.
   //
@@ -911,6 +933,7 @@ struct Internal {
   // Lucky feasible case checking.
   //
   int unlucky (int res);
+  int lucky_decide_assumptions ();
   bool lucky_propagate_discrepency (int);
   int trivially_false_satisfiable ();
   int trivially_true_satisfiable ();
@@ -1048,6 +1071,28 @@ struct Internal {
   // Transitive reduction of binary implication graph in 'transred.cpp'
   //
   void transred ();
+
+  // backbone computation
+  //
+  void backbone_decision (int lit);
+  bool backbone_propagate (int64_t &);
+  void backbone_propagate2 (int64_t &);
+  unsigned compute_backbone ();
+  void backbone_unit_reassign (
+      int lit); // only for reassigning already derived clauses!
+  void backbone_unit_assign (
+      int lit); // only for reassigning already derived clauses!
+  void backbone_assign_any (int lit, Clause *reason);
+  void backbone_assign (int lit, Clause *reason);
+  void backbone_lrat_for_units (int lit, Clause *c);
+  unsigned compute_backbone_round (std::vector<int> &candidates,
+                                   std::vector<int> &units,
+                                   const int64_t ticks_limit,
+                                   int64_t &ticks, unsigned inconsistent);
+  void schedule_backbone_cands (std::vector<int> &candidates);
+  void keep_backbone_candidates (const std::vector<int> &candidates);
+  int backbone_analyze (Clause *, int64_t &);
+  void binary_clauses_backbone ();
 
   // We monitor the maximum size and glue of clauses during 'reduce' and
   // thus can predict if a redundant extended clause is c total process time since initialization: to be kept in
@@ -1342,7 +1387,7 @@ struct Internal {
   bool run_factorization (int64_t limit);
   bool factor ();
   int get_new_extension_variable ();
-  Clause *new_factor_clause ();
+  Clause *new_factor_clause (int);
   void adjust_scores_and_phases_of_fresh_variables (Factoring &);
 
   // instantiate
@@ -1398,12 +1443,26 @@ struct Internal {
   // ProbSAT/WalkSAT implementation called initially or from 'rephase'.
   //
   void walk_save_minimum (Walker &);
-  Clause *walk_pick_clause (Walker &);
-  unsigned walk_break_value (int lit);
+  ClauseOrBinary walk_pick_clause (Walker &);
+  unsigned walk_break_value (int lit, int64_t &ticks);
+  int walk_pick_lit (Walker &walker, ClauseOrBinary);
   int walk_pick_lit (Walker &, Clause *);
-  void walk_flip_lit (Walker &, int lit);
+  bool walk_flip_lit (Walker &, int lit);
+  int walk_pick_lit (Walker &walker, TaggedBinary c);
   int walk_round (int64_t limit, bool prev);
   void walk ();
+
+  int walk_full_occs_round (int64_t limit, bool prev);
+  void walk_full_occs ();
+  void walk_full_occs_save_minimum (WalkerFO &);
+  void make_clauses_along_occurrences (WalkerFO &walker, int lit);
+  void make_clauses_along_unsatisfied (WalkerFO &walker, int lit);
+
+  // Warmup
+  inline void warmup_assign (int lit, Clause *reason);
+  void warmup_propagate_beyond_conflict ();
+  int warmup_decide ();
+  int warmup ();
 
   // Detect strongly connected components in the binary implication graph
   // (BIG) and equivalent literal substitution (ELS) in 'decompose.cpp'.
@@ -1495,6 +1554,7 @@ struct Internal {
   void limit_conflicts (int);     // Force conflict limit.
   void limit_preprocessing (int); // Enable 'n' preprocessing rounds.
   void limit_local_search (int);  // Enable 'n' local search rounds.
+  void limit_ticks (int64_t);     // Force ticks limit.
 
   // External versions can access limits by 'name'.
   //
@@ -1906,6 +1966,11 @@ inline bool Internal::search_limits_hit () {
 
   if (lim.decisions >= 0 && stats.decisions >= lim.decisions) {
     LOG ("decision limit %" PRId64 " reached", lim.decisions);
+    return true;
+  }
+
+  if (lim.ticks >= 0 && stats.ticks.search[0] + stats.ticks.search[1] >= lim.ticks) {
+    LOG ("ticks limit %" PRId64 " reached", lim.ticks);
     return true;
   }
 

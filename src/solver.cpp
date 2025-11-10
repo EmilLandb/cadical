@@ -1,3 +1,4 @@
+#include "cadical.hpp"
 #include "internal.hpp"
 
 /*------------------------------------------------------------------------*/
@@ -433,23 +434,27 @@ int Solver::vars () {
   return res;
 }
 
-void Solver::reserve (int min_max_var) {
-  TRACE ("reserve", min_max_var);
+void Solver::resize (int min_max_var) {
+  TRACE ("resize", min_max_var);
   REQUIRE_VALID_STATE ();
   transition_to_steady_state ();
   external->reset_extended ();
   external->init (min_max_var);
-  LOG_API_CALL_END ("reserve", min_max_var);
+  LOG_API_CALL_END ("resize", min_max_var);
 }
 
-int Solver::reserve_difference (int number_of_vars) {
-  TRACE ("reserve_difference", number_of_vars);
+void Solver::reserve (int min_max_var) {
+  resize (min_max_var);
+}
+
+int Solver::resize_difference (int number_of_vars) {
+  TRACE ("resize_difference", number_of_vars);
   REQUIRE_VALID_STATE ();
   transition_to_steady_state ();
   external->reset_extended ();
   int new_max_var = external->max_var + number_of_vars;
   external->init (new_max_var);
-  LOG_API_CALL_END ("reserve_difference", number_of_vars);
+  LOG_API_CALL_END ("resize_difference", number_of_vars);
   return new_max_var;
 }
 
@@ -727,8 +732,8 @@ int Solver::propagate () {
 void Solver::implied (std::vector<int> &entrailed) {
   TRACE ("implied");
   REQUIRE_VALID_STATE ();
-  REQUIRE (state () == INCONCLUSIVE,
-           "can only get implied literals only in unknown state");
+  REQUIRE (state () == INCONCLUSIVE || state () == SATISFIED,
+           "can only get implied literals only in unknown or satisfied state");
   external->conclude_unknown ();
   external->implied (entrailed);
   if (tracing_nb_lidrup_env_var_method)
@@ -1768,6 +1773,8 @@ int64_t Solver::get_statistic_value (const char *opt) const {
     return internal->stats.conflicts;
   if (!strcmp (opt, "decisions"))
     return internal->stats.decisions;
+  if (!strcmp (opt, "ticks"))
+    return internal->stats.ticks.search[0] + internal->stats.ticks.search[1];
   if (!strcmp (opt, "propagations"))
     return internal->stats.propagations.search;
   if (!strcmp (opt, "clauses"))
