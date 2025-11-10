@@ -120,7 +120,7 @@ namespace CaDiCaL {
       if (opts.allrprreport)
         printf ("\nKIT Kitten Size 0\n"); // TODO Remove
       allrpr_init_citten ();
-      kitten_track_antecedents (citten);
+      kitten_track_antecedents (citten); // Not needed w/o LRAT ?
       LOG ("Clearing added flags and allrpr_pcs.reasons...");
       // Here we also need to clear flags and reasons because Kitten got reset
       // in elim or sweep.
@@ -325,7 +325,6 @@ extern "C" {
 		for (const unsigned *p = elits; p != end; p++) {
 			final.push_back (internal->citten2lit (*p));
 		}
-		
 	#ifdef LOGGING
 		LOG (final, "failing clause");
 	#endif
@@ -349,10 +348,10 @@ extern "C" {
 	// a struct Clause. We directly attach the unit_id in this case.
 	//
 	inline void Internal::feed_unit_reason (int unit) {
-		int64_t id = unit_id (unit);
-		assert (unit_id (unit));
-		LOG ("Adding unit clause[%lld] %d", id, unit);
-		citten_clause_with_id (citten, id, 1, &unit);
+		//int64_t id = unit_id (unit);
+		//assert (unit_id (unit));
+		LOG ("Adding unit clause[%lld] %d", -1, unit);
+		citten_clause_with_id (citten, 0, 1, &unit);
 	}
 
 	// Sets the literals in the implication graph between the learned clause and
@@ -415,6 +414,9 @@ extern "C" {
 					base.push_back (-rlit);			
 				}
 			}
+		}
+		for (const int &lit : base) {
+			allrpr_mark (lit, pcs) &= ~TARGET; 
 		}
 		LOG (base, "base:");
 		STOP (allrprcollect);
@@ -559,13 +561,13 @@ extern "C" {
 			printf ("KIT added extraclauses %d\n", extracls);
 		}
 
+		const int kitten_size = old_kitten_size + basecls + extracls;
 		// Update if fresh kitten
 		if (!old_kitten_size) {
-			allrpr_last_size_after_reset = basecls + extracls;
+			allrpr_last_size_after_reset = kitten_size;
 		} 
-
 		// Further clauses were added. Maybe reset kitten if too many new clauses
-		else if ((old_kitten_size + basecls + extracls) > 3 * allrpr_last_size_after_reset) { 
+		else if (kitten_size > 3 * allrpr_last_size_after_reset && kitten_size > opts.allrprresethresh) { 
 			if (opts.allrprreport) {
 				printf ("KIT last size after reset %d\n", allrpr_last_size_after_reset);
 				printf ("KIT force reset\n");
@@ -840,7 +842,7 @@ extern "C" {
 	// Called as the final round of attempted minimization. Here we finally also
 	// produce the 
 	// 
-	void Internal::allrpr_kitten_catch_rat (int uip, allrpr_proof_clauses &pcs) {
+	void Internal::allrpr_kitten_catch_rat (int uip, allrpr_mini_pcs &mini_pcs) {
 		START (allrprsolve);
 		assert (citten);
 		// assume the negation of the learned clause, which should unsatisfy the 
@@ -862,7 +864,7 @@ extern "C" {
 		// In each case we need to (re)trace the core. I.e. retracing if the empty
 		// clause was already derived in an earlier minimization try
 		LOG ("Tracing clausal core...");
-		kitten_trace_core (citten, &pcs, extract_clause_from_kitten);
+		kitten_traverse_core_clauses (citten, &mini_pcs, get_final_from_core);
 		stats.allrpr.kittencalls++;
 		STOP (allrprsolve);
 	}
@@ -1022,7 +1024,7 @@ extern "C" {
 		}
 		const int improvement = old_glue - glue;
 		if (improvement) {
-			LOG ("glue improved by from %d to %d", improvement, old_glue, glue);
+			LOG ("glue improved by %d from %d to %d", improvement, old_glue, glue);
 			stats.allrpr.nimprovedglue++;
 			stats.allrpr.simprovedglue += improvement;
 
@@ -1037,6 +1039,12 @@ extern "C" {
 				stats.allrpr.liftedtier2++;
 			}
 		}
+		/*
+		if (!glue) {
+			clause.clear ();
+			clause.push_back (-control[lowest_level].decision);
+		}
+		*/
 	}
 
 

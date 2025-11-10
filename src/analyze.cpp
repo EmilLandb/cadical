@@ -1255,145 +1255,136 @@ void Internal::analyze () {
   bool kitten_successful_mini =  false;
 
   if (lrat) {
+    LOG (unit_chain, "unit chain: ");
+    for (auto id : unit_chain)
+      lrat_chain.push_back (id);
+    unit_chain.clear ();
+    reverse (lrat_chain.begin (), lrat_chain.end ());
+  }
+  if (opts.allrprreport) {
+    printf ("KIT tier2[false]: %d\n", tier2[false]);
+    printf ("KIT tier2[true]: %d\n", tier2[true]);
+    printf ("KIT lim.keptglue: %d\n", lim.keptglue);
+    printf ("KIT lim.keptsize: %d\n", lim.keptsize);
+    printf ("KIT preLRAT Chain size: %zu\n", lrat_chain.size ());
+  } 
+  if (allrpr_try_minimize (glue, size, old_size)) { // Finalize LRAT chain
+    LOG ("Learned clause has qualified for a further minimization attempt");
+    allrpr_check_kitten_and_pcs ();
+    assert (citten);
+    // Fix initial assumption order
+    if (opts.allrprshrinkorder)
+      allrpr_sort_shrunken ();
+    else if (opts.allrprreverse) { // sort clause by decreasing trail position
+      minimize_sort_clause ();
+      reverse (clause.begin (), clause.end ());
+    }
+
+    // Literals that will eventually be true given the necessary reasons and
+    // the learned clause. Also some other literals are put in here but 
+    // broadly speaking it the implication graph nodes between (shrunken)
+    // learned clause and conflict clause.
+    vector<int> base; 
+
+    // Clear all marks except for the IN_KITTEN mark, because this one is
+    // needed to early skip candidate literals in collect_more
+    for (signed char &sc : allrpr_pcs.marks) {
+      sc &= 0b11110000;
+    }
+
+    allrpr_mark_graph (base, allrpr_pcs);
+    allrpr_collect_more_dist_filter (base, allrpr_pcs); 
+  
     if (opts.allrprreport) {
-      printf ("KIT tier2[false]: %d\n", tier2[false]);
-      printf ("KIT tier2[true]: %d\n", tier2[true]);
-      printf ("KIT lim.keptglue: %d\n", lim.keptglue);
-      printf ("KIT lim.keptsize: %d\n", lim.keptsize);
-      printf ("KIT preLRAT Chain size: %zu\n", lrat_chain.size ());
-    } 
-    if (!allrpr_try_minimize (glue, size, old_size)) { // Finalize LRAT chain
-      LOG (unit_chain, "unit chain: ");
-      for (auto id : unit_chain)
-        lrat_chain.push_back (id);
-      unit_chain.clear ();
-      reverse (lrat_chain.begin (), lrat_chain.end ());
-    } 
-    else { // Try Kitten minimization
-      LOG ("Learned clause has qualified for a further minimization attempt");
-      allrpr_check_kitten_and_pcs ();
-      assert (citten);
-      // Fix initial assumption order
-      if (opts.allrprshrinkorder)
-        allrpr_sort_shrunken ();
-      else if (opts.allrprreverse) { // sort clause by decreasing trail position
-        minimize_sort_clause ();
-        reverse (clause.begin (), clause.end ());
-      }
+      printf ("KIT Kitten Size %zu\n", allrpr_pcs.reasons.size ());
+      printf ("KIT size of base %zu\n", base.size ());
+    }
 
-      // Literals that will eventually be true given the necessary reasons and
-      // the learned clause. Also some other literals are put in here but 
-      // broadly speaking it the implication graph nodes between (shrunken)
-      // learned clause and conflict clause.
-      vector<int> base; 
+    #ifdef LOGGING
+    if (opts.log)
+      kitten_set_logging (citten);
+    #endif
 
-      // Clear all marks except for the IN_KITTEN mark, because this one is
-      // needed to early skip candidate literals in collect_more
-      for (signed char &sc : allrpr_pcs.marks) {
-        sc &= 0b11110000;
-      }
+    const int post_shrink_size = (int) clause.size ();
 
-      allrpr_mark_graph (base, allrpr_pcs);
-      allrpr_collect_more_dist_filter (base, allrpr_pcs); 
+    // Try to minimize with kitten (including retries)
+    allrpr_mini_pcs mini_pcs;
+    mini_pcs.internal = this;
+    vector<int> &final = mini_pcs.final_clause;
 
-      if (opts.allrprreport) {
-        printf ("KIT Kitten Size %zu\n", allrpr_pcs.reasons.size ());
-        printf ("KIT size of base %zu\n", base.size ());
-      }
-
-      #ifdef LOGGING
-      if (opts.log)
-        kitten_set_logging (citten);
-      #endif
-
-      const int post_shrink_size = (int) clause.size ();
-
-      // Try to minimize with kitten (including retries)
-      allrpr_mini_pcs mini_pcs;
-      mini_pcs.internal = this;
-      vector<int> &final = mini_pcs.final_clause;
-
-      int minimized_again = -1; // first minimization isn't accounted for here
-      // attempt minimization iteratively k times without extracting the core
-      allrpr_attempt_minimize_k_times (uip, mini_pcs, final, minimized_again);
-      // now finally with extracting the core.
-      allrpr_kitten_catch_rat (uip, allrpr_pcs);
+    int minimized_again = -1; // first minimization isn't accounted for here
+    // attempt minimization iteratively k times without extracting the core
+    allrpr_attempt_minimize_k_times (uip, mini_pcs, final, minimized_again);
+    // now finally with extracting the core.
+    allrpr_kitten_catch_rat (uip, mini_pcs);
     
-      // Find out whether further minimization was achieved
-      vector<int> &klause = allrpr_pcs.proof_clauses.back ().literals;
-      int new_size = (int) klause.size ();
-      if (!uip) {
-        new_size = 0;
-        klause.clear ();
+    // Find out whether further minimization was achieved
+    vector<int> &klause = final;
+    int new_size = (int) klause.size ();
+    if (!uip) {
+      new_size = 0;
+      klause.clear ();
+    }
+      
+    // successful further minimization in last kitten call
+    if (new_size < (int) clause.size ()) 
+      minimized_again++;
+
+    // minimized multiple times due to retries
+    if (minimized_again > 0) { 
+      stats.allrpr.withminiagain++; 
+      stats.allrpr.miniagain += minimized_again;
+    }
+
+    if (post_shrink_size > new_size) { // minimization achieved, build own LRAT chain
+      if (opts.allrprreport) {
+        printf ("KIT clause minimized by %d, relative size %f \n",
+          post_shrink_size - new_size, 
+          (double) new_size / post_shrink_size);
       }
       
-      // successful further minimization in last kitten call
-      if (new_size < (int) clause.size ()) 
-        minimized_again++;
+      kitten_successful_mini = true;
 
-      // minimized multiple times due to retries
-      if (minimized_again > 0) { 
-        stats.allrpr.withminiagain++; 
-        stats.allrpr.miniagain += minimized_again;
-      }
+      if (opts.allrprmorestats)
+        allrpr_update_extra_stats (allrpr_pcs);
 
-      if (post_shrink_size > new_size) { // minimization achieved, build own LRAT chain
-        if (opts.allrprreport) {
-          printf ("KIT clause minimized by %d, relative size %f \n",
-            post_shrink_size - new_size, 
-            (double) new_size / post_shrink_size);
-        }
+      stats.allrpr.nminimized++;
+      stats.allrpr.sminimized += post_shrink_size - new_size;
+      stats.allrpr.slearnedlits += (int64_t) post_shrink_size; 
+
+      // Need to provide own lrat proof
+      //lrat_chain.clear ();
+      //unit_chain.clear ();
+      //allrpr_build_lrat (allrpr_pcs);
+
+      clause = std::move(klause);
+      LOG (clause, "Further minimization to");
+
+      // uip might have changed
+      if (clause.size ()) {
+        MSORT (opts.radixsortlim, clause.begin (), clause.end (),
+               analyze_trail_negative_rank (this), analyze_trail_larger (this));
+        LOG ("updating uip from %d to %d", uip, -clause[0]);
+        uip = -clause[0];
+
+        // glue might have changed
+        allrpr_update_glue (uip, glue);
         
-        kitten_successful_mini = true;
-
-        if (opts.allrprmorestats)
-          allrpr_update_extra_stats (allrpr_pcs);
-
-        stats.allrpr.nminimized++;
-        stats.allrpr.sminimized += post_shrink_size - new_size;
-        stats.allrpr.slearnedlits += (int64_t) post_shrink_size; 
-
-        // Need to provide own lrat proof
-        lrat_chain.clear ();
-        unit_chain.clear ();
-        allrpr_build_lrat (allrpr_pcs);
-
-        clause = std::move(klause);
-        LOG (clause, "Further minimization to");
-
-        // uip might have changed
-        if (clause.size ()) {
-          MSORT (opts.radixsortlim, clause.begin (), clause.end (),
-                 analyze_trail_negative_rank (this), analyze_trail_larger (this));
-          LOG ("updating uip from %d to %d", uip, -clause[0]);
-          uip = -clause[0];
-
-          // glue might have changed
-          allrpr_update_glue (uip, glue);
-          
-          // it is possible that kitten finds a further minimized learned clause
-          // that has its highest decision level far below the current level.
-          // This, together with chronological backtracking may lead to situations 
-          // where after backtracking the new learned clause is still completely
-          // falsified. Therefore we backtrack to the new clauses highest decision
-          // level first to ensure that any backjumping determined by
-          // 'determine_actual_backtrack_level ()' will have the new clause propagating.
-          //
-          if (level > var (uip).level)
-            backtrack (var (uip).level);
-        }
-      } 
-      else { // minimization wasn't successful. Complete the chain
-        LOG (unit_chain, "unit chain: ");
-        for (auto id : unit_chain)
-          lrat_chain.push_back (id);
-        unit_chain.clear ();
-        reverse (lrat_chain.begin (), lrat_chain.end ());
+        // it is possible that kitten finds a further minimized learned clause
+        // that has its highest decision level far below the current level.
+        // This, together with chronological backtracking may lead to situations 
+        // where after backtracking the new learned clause is still completely
+        // falsified. Therefore we backtrack to the new clauses highest decision
+        // level first to ensure that any backjumping determined by
+        // 'determine_actual_backtrack_level ()' will have the new clause propagating.
+        //
+        if (level > var (uip).level)
+          backtrack (var (uip).level);
       }
-      if (opts.allrprreport)
-        printf ("\n");
-    }  
-  }
+    } 
+    if (opts.allrprreport)
+      printf ("\n");
+  }  
   START (analyze);
 
   // Determine back-jump level, learn driving clause, backtrack and assign
@@ -1409,7 +1400,7 @@ void Internal::analyze () {
   // We can instead just set the conflict to this newly learned clause and
   // return to propagate, which will then trigger conflict analysis again.
   //
-  if (lrat && clause.size () > 1 && var (uip).level == var (clause[1]).level) {
+  if (clause.size () > 1 && var (uip).level == var (clause[1]).level) {
     LOG (driving_clause, "Setting as new conflict ");
     conflict = driving_clause; // analyze again
 
@@ -1419,10 +1410,10 @@ void Internal::analyze () {
     clear_unit_analyzed_literals ();
     clear_analyzed_levels ();
     clause.clear ();
-    lrat_chain.clear ();
+    //lrat_chain.clear ();
 
     // ALLRPR delete intermediate proof steps.
-    allrpr_delete_intermediate_lrat (allrpr_pcs);
+    //allrpr_delete_intermediate_lrat (allrpr_pcs);
     allrpr_pcs.proof_clauses.clear (); // clear proof clauses after every lrat generation but keep reasons for now
 
 

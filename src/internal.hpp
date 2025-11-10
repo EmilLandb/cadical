@@ -794,7 +794,7 @@ struct Internal {
   void allrpr_build_lrat (allrpr_proof_clauses &pcs); // builds LRAT proof from collected kitten core
   void allrpr_delete_intermediate_lrat (const allrpr_proof_clauses &pcs); // deletes intermediate LRAT proof steps 
   bool allrpr_try_minimize (int glue, int size, const int old_size) const;
-  void allrpr_kitten_catch_rat (int uip, allrpr_proof_clauses &pcs); // LRAT chain from kitten
+  void allrpr_kitten_catch_rat (int uip, allrpr_mini_pcs &mini_pcs); // LRAT chain from kitten
   void allrpr_attempt_minimize_k_times (
     int &uip, allrpr_mini_pcs &mini_pcs, vector<int> &final, int &mini_again);
   void allrpr_kitten_attempt_minimize (allrpr_mini_pcs &mini_pcs, int attempt);

@@ -28,6 +28,7 @@ OPTION( allrprfiltershrink,0,  0,  1,0,0,1, "only try further minimization if sh
 OPTION( allrprgluethresh,  0,  0,  1,0,0,1, "glue threshold for trying kitten minimization (predicate likely_to_be_kept)") \
 OPTION( allrprmorestats,   0,  0,  1,0,0,0, "collect more stats") \
 OPTION( allrprreport,      0,  0,  1,0,0,0, "print some information without logging") \
+OPTION( allrprresethresh,1e3,  0,1e4,0,0,1, "secondary kitten size threshold for resets") \
 OPTION( allrprretries,     0,  0,1e3,0,0,1, "number of retries made per kitten call") \
 OPTION( allrprreverse,     0,  0,  1,0,0,1, "sort clause in descending trail order") \
 OPTION( allrprshrinkorder, 0,  0,  1,0,0,1, "sort clause by descending trail order with slice uips in the back") \
