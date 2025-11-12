@@ -753,9 +753,10 @@ extern "C" {
 	}
 
 	void Internal::allrpr_traverse_binary_graph (allrpr_proof_clauses &pcs) {
+		LOG ("TRAVERSE BINARY GRAPH");
+		LOG (clause, "Attempting binary minimization on");
 		vector<int> unset_true;
 		vector<int> queue;
-		//printf ("old clause = ");
 		int round = 0;
 		size_t round_end = clause.size ();
 		for (const int &lit : clause) {
@@ -765,6 +766,7 @@ extern "C" {
 		while (idx < round_end) {
 			const int lit = queue[idx++];
 			if (is_true (-lit, pcs)) {
+				LOG ("%d already implied!", -lit);
 				set_target (lit, pcs); // lit removable
 				continue;
 			} 
@@ -777,11 +779,13 @@ extern "C" {
 				const Watch w = *j++;
 				if (!w.binary ()) { // skip non-binary clauses
 					continue;
-				} 
+				}
+				//assert (!w.clause->garbage);
+				LOG (w.clause, "found binary clause");
 				if (is_true (w.blit, pcs)) // skip because already in queue if set to true
 					continue;
 				set_true (w.blit, pcs);
-				//queue.push_back (w.blit);
+				//printf ("set true in binary %d %d\n", -lit, w.blit);
 				unset_true.push_back (w.blit);
 			}
 		}
@@ -789,19 +793,26 @@ extern "C" {
 			allrpr_mark (lit, pcs) &= ~TRUE;
 		}
 		vector<int> new_clause;
-		//printf ("\nnew clause = ");
 		for (const int &lit : clause) {
 			if (is_target (lit, pcs)) {
-				stats.allrpr.binmini++;
+				stats.binmini.mini++;
 				allrpr_mark (lit, pcs) &= ~TARGET;
 			}
 			else {
-				//printf ("%d ", lit);
-				//new_clause.push_back (lit);
+				new_clause.push_back (lit);
 			}
 		}
+		stats.binmini.prelits += (int64_t) clause.size ();
 		clause = new_clause;
-		//printf ("\nDone!\n");
+		/*
+		printf ("\nclause after:          ");
+		for (const int &lit : clause)
+			printf ("%d ", lit);
+		printf ("\n");
+		if (!clause.size ())
+			printf ("ERROR\n");
+		*/
+		LOG ("END TRAVERSE BINARY GRAPH");
 	}
 // ----------------------------------------------------------------------------//
 
@@ -1080,6 +1091,7 @@ extern "C" {
 		glue = 0;
 		int lowest_level = var (uip).level;
 		for (const int &lit : clause) { // clause is sorted by trail rank
+			printf ("lvl: %d\n", var (lit).level);
 			if (var (lit).level < lowest_level) {
 				lowest_level = var (lit).level;
 				glue++;
@@ -1087,6 +1099,7 @@ extern "C" {
 		}
 		const int improvement = old_glue - glue;
 		if (improvement) {
+			printf ("glue improved\n");
 			LOG ("glue improved by %d from %d to %d", improvement, old_glue, glue);
 			stats.allrpr.nimprovedglue++;
 			stats.allrpr.simprovedglue += improvement;

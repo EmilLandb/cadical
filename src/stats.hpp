@@ -418,8 +418,12 @@ struct Stats {
     int64_t kittensize = 0; // number of clauses in kitten after adding
     int64_t kittenresets = 0; // number of times kitten got reset
     int64_t baseskipped = 0; // number of base reasons that were already in kitten
-    int64_t binmini = 0;
   } allrpr;
+
+  struct {
+    int64_t prelits = 0; // lits in clause after shrinking
+    int64_t mini = 0; // removed in binmini
+  } binmini;
 
   struct {
     int64_t rounds = 0;

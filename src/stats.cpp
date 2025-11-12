@@ -63,6 +63,20 @@ void Stats::print (Internal *internal) {
   extendbytes *= sizeof (int);
 
   SECTION ("statistics");
+  if (all || stats.binmini.mini) {
+     PRT ("  binmini        %15" PRId64 "   %10.2f %%  of post shrink lits",
+          stats.binmini.mini,
+          percent (stats.binmini.mini, stats.binmini.prelits));
+     PRT ("  improvedglue   %15" PRId64 "   %10.2f %%  of further minimizations",
+          stats.allrpr.nimprovedglue,
+          percent (stats.allrpr.nimprovedglue, stats.allrpr.nminimized));
+     PRT ("  improvedtier2  %15" PRId64 "   %10.2f %%  of glue improvements",
+          stats.allrpr.liftedtier2,
+          percent (stats.allrpr.liftedtier2, stats.allrpr.nimprovedglue));
+     PRT ("  improvedtier1  %15" PRId64 "   %10.2f %%  of glue improvements",
+          stats.allrpr.liftedtier1,
+          percent (stats.allrpr.liftedtier1, stats.allrpr.nimprovedglue));
+  }
   if (all || stats.allrpr.kittencalls) {
      PRT ("allrpr:          %15" PRId64 "   %10.2f %%  of conflicts",
           stats.allrpr.kittencalls, 
@@ -112,9 +126,6 @@ void Stats::print (Internal *internal) {
      PRT ("  baseskipped    %15" PRId64 "   %10.2f    per baseadded",
           stats.allrpr.baseskipped,
           relative (stats.allrpr.baseskipped, stats.allrpr.baseadded));
-     PRT ("  binmini        %15" PRId64 "   %10.2f    per whatever",
-          stats.allrpr.binmini,
-          relative (stats.allrpr.binmini, stats.allrpr.baseadded));
   }
   if (stats.allrpr.basecsinminicore) {
      PRT ("  minicorecls    %15" PRId64 "   %10.2f    per successful minimization",
