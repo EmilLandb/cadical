@@ -70,6 +70,12 @@ void Stats::print (Internal *internal) {
      PRT ("  added:         %15" PRId64 "   %10.2f    per kitten call",
           stats.allrpr.added,
           relative (stats.allrpr.added, stats.allrpr.kittencalls));
+     PRT ("  kittensize:    %15" PRId64 "   %10.2f    per kitten call",
+          stats.allrpr.kittensize,
+          relative (stats.allrpr.kittensize, stats.allrpr.kittencalls));
+     PRT ("  kittenresets:  %15" PRId64 "   %10.2f    interval",
+          stats.allrpr.kittenresets,
+          relative (stats.allrpr.kittenresets, stats.allrpr.kittencalls));
      PRT ("  learnedlits    %15" PRId64 "   %10.2f    per successful minimization (pre kitten)",
           stats.allrpr.slearnedlits,
           relative (stats.allrpr.slearnedlits, stats.allrpr.nminimized));
@@ -103,6 +109,12 @@ void Stats::print (Internal *internal) {
      PRT ("  extradded      %15" PRId64 "   %10.2f %%  of all added",
           stats.allrpr.extradded,
           percent (stats.allrpr.extradded, stats.allrpr.added));
+     PRT ("  baseskipped    %15" PRId64 "   %10.2f    per baseadded",
+          stats.allrpr.baseskipped,
+          relative (stats.allrpr.baseskipped, stats.allrpr.baseadded));
+     PRT ("  binmini        %15" PRId64 "   %10.2f    per whatever",
+          stats.allrpr.binmini,
+          relative (stats.allrpr.binmini, stats.allrpr.baseadded));
   }
   if (stats.allrpr.basecsinminicore) {
      PRT ("  minicorecls    %15" PRId64 "   %10.2f    per successful minimization",

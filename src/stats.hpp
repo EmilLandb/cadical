@@ -415,6 +415,10 @@ struct Stats {
     int64_t distgr3extra = 0; // number of extra clauses that are more than three lits away from base
     int64_t withminiagain = 0; // number of times a kitten call with retries lead to a further further minimization
     int64_t miniagain = 0; // number of times a further further minimization was achieved by retrying
+    int64_t kittensize = 0; // number of clauses in kitten after adding
+    int64_t kittenresets = 0; // number of times kitten got reset
+    int64_t baseskipped = 0; // number of base reasons that were already in kitten
+    int64_t binmini = 0;
   } allrpr;
 
   struct {

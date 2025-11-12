@@ -96,7 +96,7 @@ namespace CaDiCaL {
 	// check whether kitten needs to be reset and if so clean up.
 	//
 	void Internal::allrpr_check_kitten_and_pcs () {
-		if (citten && allrpr_need_reset) { // && citten
+		if (citten && allrpr_need_reset) {
       // this is true if mark_garbage, mark_added or mark_removed was called
       // on a clause for which c->added holds. All pointers should still be 
       // valid but the Kitten clause base is still corrupted. Before resetting
@@ -141,6 +141,7 @@ namespace CaDiCaL {
       //allrpr_pcs.marks.clear (); // Clear all marks
       allrpr_pcs.internal = this;
       allrpr_last_size_after_reset = 0;
+      stats.allrpr.kittenresets++;
     }
 	}
 
@@ -589,8 +590,8 @@ extern "C" {
 	// many non-base literals, i.e. are further away from the present 
 	// implication graph.
 	//
-	/*
-	void Internal::allrpr_collect_more_dist_filterV2 (vector<int> &base, allrpr_proof_clauses &pcs) {
+
+	void Internal::allrpr_collect_more_dist_filter_BFS (vector<int> &base, allrpr_proof_clauses &pcs) {
 		LOG ("ALLRPR COLLECT MORE");
 		START (allrprcollect);
 		vector<Clause*> unmarkcls;
@@ -599,7 +600,7 @@ extern "C" {
 		int basecls = 0;
 		int extracls = 0;
 		int wouldbase = 0;
-		// init work stack in order of assumption
+
 		if (!conflict->added) {
 			LOG (conflict, "Adding conflict");
 			feed_reason (pcs, conflict);
@@ -632,22 +633,25 @@ extern "C" {
 			else {
 				LOG ("No reason for %d", lit);
 			}
-			work.push_back (lit);
-			set_worked (lit, pcs);
+			//work.push_back (lit);
+			//set_worked (lit, pcs);
 		}
-
+		for (const int &lit : clause) {
+			work.push_back (lit);
+			set_worked (lit, pcs);			
+		}
 		LOG (work, "initialized work to");
 		// Now start at the end of work and look for further propagations given
 		// the valuations by the marks. If a literal could propagate, we push it 
 		// onto work and mark it.
 		size_t idx = 0;
-		while (idx++ < work.size () && extracls < opts.allrpraddthresh) {
+		while (idx < work.size () && extracls < opts.allrpraddthresh) {
 			int lit = work[idx];
+			++idx;
 			assert (is_worked (lit, pcs));
-			//work.pop_back ();
 			LOG ("working on %d", lit);
 			if (is_in_kitten (lit, pcs)) {
-				LOG ("%d watch list clauses are already in kitten", -lit);
+				LOG ("%d watch list clauses probably are already in kitten", -lit);
 				continue;
 			}
 			set_in_kitten (lit, pcs);
@@ -656,11 +660,10 @@ extern "C" {
 			Watches &ws = watches (-lit);
 			const const_watch_iterator eow = ws.end ();
 			watch_iterator j = ws.begin ();
-
 			while (j != eow) {
 				const Watch w = *j++;
 				int prop_lit = 0;
-				if (w.size > 4) // TODO: remove after tests
+				if (w.size > opts.allrprextmaxsize)
 					continue;
 				if (w.clause->added) {
 					LOG (w.clause, "Skipping already added clause");
@@ -720,6 +723,7 @@ extern "C" {
 		stats.allrpr.added += basecls + extracls;
 		stats.allrpr.baseadded += basecls;
 		stats.allrpr.extradded += extracls;
+		stats.allrpr.baseskipped += wouldbase;
 		if (opts.allrprreport) {
 			printf ("KIT added baseclauses %d\n", basecls);
 			printf ("KIT skipped baseclauses %d\n", wouldbase);
@@ -747,7 +751,58 @@ extern "C" {
 		}
 		STOP (allrprcollect);
 	}
-	*/
+
+	void Internal::allrpr_traverse_binary_graph (allrpr_proof_clauses &pcs) {
+		vector<int> unset_true;
+		vector<int> queue;
+		//printf ("old clause = ");
+		int round = 0;
+		size_t round_end = clause.size ();
+		for (const int &lit : clause) {
+			queue.push_back (lit);
+		}
+		size_t idx = 0;
+		while (idx < round_end) {
+			const int lit = queue[idx++];
+			if (is_true (-lit, pcs)) {
+				set_target (lit, pcs); // lit removable
+				continue;
+			} 
+			set_true (-lit, pcs);
+			unset_true.push_back (-lit);
+			Watches &ws = watches (-lit);
+			const const_watch_iterator eow = ws.end ();
+			watch_iterator j = ws.begin ();
+			while (j != eow) {
+				const Watch w = *j++;
+				if (!w.binary ()) { // skip non-binary clauses
+					continue;
+				} 
+				if (is_true (w.blit, pcs)) // skip because already in queue if set to true
+					continue;
+				set_true (w.blit, pcs);
+				//queue.push_back (w.blit);
+				unset_true.push_back (w.blit);
+			}
+		}
+		for (const int &lit : unset_true) {
+			allrpr_mark (lit, pcs) &= ~TRUE;
+		}
+		vector<int> new_clause;
+		//printf ("\nnew clause = ");
+		for (const int &lit : clause) {
+			if (is_target (lit, pcs)) {
+				stats.allrpr.binmini++;
+				allrpr_mark (lit, pcs) &= ~TARGET;
+			}
+			else {
+				//printf ("%d ", lit);
+				//new_clause.push_back (lit);
+			}
+		}
+		clause = new_clause;
+		//printf ("\nDone!\n");
+	}
 // ----------------------------------------------------------------------------//
 
 	// Build the LRAT chain(s) for the core learned clause. For intermediate 
@@ -835,8 +890,9 @@ extern "C" {
 		// skipped because using kitten here will slow down the solver immensely
 		const bool basesizequalified = (int) lrat_chain.size () < opts.allrprbasethresh;
 		return (!opts.allrprgluethresh || gluequalified) &&
+					 (!opts.allrprsizethresh || sizequalified) &&
 					 (!opts.allrprfiltershrink || old_size > size) &&
-					 basesizequalified && sizequalified && size > 1;
+					 basesizequalified && size > 1;
 	}
 
 	// Called as the final round of attempted minimization. Here we finally also
@@ -872,7 +928,7 @@ extern "C" {
 	// Lightweight version of allrpr_kitten_catch_rat. Used for the first k tries
 	// at minimization, before finally the LRAT chain is also extracted
 	//  
-	void Internal::allrpr_kitten_attempt_minimize (allrpr_mini_pcs &mini_pcs, int attempt) {
+	void Internal::allrpr_kitten_attempt_minimize (allrpr_mini_pcs &mini_pcs, const int attempt, const bool shuffle) {
 		START (allrprsolve);
 		assert (citten);
 
@@ -885,8 +941,8 @@ extern "C" {
 			LOG ("Assuming %d", -lit);
 			kitten_assume_signed (citten, -lit);
 		}
-
-		kitten_shuffle_assumptions (citten);
+		if (shuffle)
+			kitten_shuffle_assumptions (citten);
 		kitten_solve (citten);
 		kitten_compute_clausal_core (citten, nullptr);
 		kitten_traverse_core_clauses (citten, &mini_pcs, get_final_from_core);
@@ -897,7 +953,7 @@ extern "C" {
 	// attempt k rounds of minimization
 	void Internal::allrpr_attempt_minimize_k_times (
 		int &uip, allrpr_mini_pcs &mini_pcs, vector<int> &final, int &mini_again) {
-		
+		bool shuffle = true;
 		for (int i = 0; i < opts.allrprretries; i++) {
       if (clause.size () == 0)
         break;
@@ -909,7 +965,7 @@ extern "C" {
       	printf ("\n");	
       }
 
-      allrpr_kitten_attempt_minimize (mini_pcs, i);
+      allrpr_kitten_attempt_minimize (mini_pcs, i, shuffle);
       LOG (mini_pcs.final_clause, "clause after attempt %i", i);
       if (mini_pcs.final_clause.size () < clause.size ()) { // successful further further
         mini_again++;
@@ -918,8 +974,15 @@ extern "C" {
         	printf ("KIT final size: %zu\n", mini_pcs.final_clause.size ());
         }
       }
-      if (!final.empty ()) 
-        clause = mini_pcs.final_clause;
+      if (!final.empty ()) {
+      	const int old_size = (int) clause.size ();
+      	if (opts.allrprreorder && old_size > (int) final.size ()) {
+      		clause = mini_pcs.final_clause;
+      		allrpr_sort_shrunken ();
+      		shuffle = false;
+      	} else 
+      		shuffle = true;
+      }
       else { // UNSAT, derived empty clause. allrpr_kitten_catch_rat will now just retrace core
         uip = 0;
         break;

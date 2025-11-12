@@ -45,6 +45,7 @@ struct Internal;
 
 #define PROFILES \
   PROFILE (allrpr, 3) \
+  PROFILE (allrprbin, 2) \
   PROFILE (allrprcollect, 3) \
   PROFILE (allrprlrat, 3) \
   PROFILE (allrprreorder, 3) \

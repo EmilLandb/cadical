@@ -807,6 +807,9 @@ struct Internal {
 
   void allrpr_mark_graph (vector<int> &base, allrpr_proof_clauses &pcs);
   void allrpr_collect_more_dist_filter (vector<int> &base, allrpr_proof_clauses &pcs);
+  void allrpr_collect_more_dist_filter_BFS (vector<int> &base, allrpr_proof_clauses &pcs);
+
+  void allrpr_traverse_binary_graph (allrpr_proof_clauses &pcs); 
 
   void allrpr_build_lrat (allrpr_proof_clauses &pcs); // builds LRAT proof from collected kitten core
   void allrpr_delete_intermediate_lrat (const allrpr_proof_clauses &pcs); // deletes intermediate LRAT proof steps 
@@ -814,7 +817,7 @@ struct Internal {
   void allrpr_kitten_catch_rat (int uip, allrpr_mini_pcs &mini_pcs); // LRAT chain from kitten
   void allrpr_attempt_minimize_k_times (
     int &uip, allrpr_mini_pcs &mini_pcs, vector<int> &final, int &mini_again);
-  void allrpr_kitten_attempt_minimize (allrpr_mini_pcs &mini_pcs, int attempt);
+  void allrpr_kitten_attempt_minimize (allrpr_mini_pcs &mini_pcs, const int attempt, const bool shuffle);
   void allrpr_update_extra_stats (allrpr_proof_clauses &pcs);
   void allrpr_update_glue (int uip, int& glue);
 

@@ -1292,10 +1292,13 @@ void Internal::analyze () {
     for (signed char &sc : allrpr_pcs.marks) {
       sc &= 0b11110000;
     }
-
+    
     allrpr_mark_graph (base, allrpr_pcs);
-    allrpr_collect_more_dist_filter (base, allrpr_pcs); 
-  
+    //allrpr_collect_more_dist_filter (base, allrpr_pcs); 
+    allrpr_collect_more_dist_filter_BFS (base, allrpr_pcs);
+
+    stats.allrpr.kittensize += (int64_t) allrpr_pcs.reasons.size ();
+
     if (opts.allrprreport) {
       printf ("KIT Kitten Size %zu\n", allrpr_pcs.reasons.size ());
       printf ("KIT size of base %zu\n", base.size ());
@@ -1384,8 +1387,9 @@ void Internal::analyze () {
       }
     } 
     if (opts.allrprreport)
-      printf ("\n");
-  }  
+      printf ("\n");// TODO: remove false
+  } 
+
   START (analyze);
 
   // Determine back-jump level, learn driving clause, backtrack and assign
