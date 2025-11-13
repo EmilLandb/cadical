@@ -389,7 +389,6 @@ struct Stats {
   } congruence;
 
   struct {
-<<<<<<< HEAD
     int64_t kittencalls = 0;   // total kitten calls
     int64_t added = 0;         // total clauses added
     int64_t baseadded = 0;     // total number of base clauses added

@@ -115,7 +115,7 @@ namespace CaDiCaL {
       allrpr_reset_citten ();
       allrpr_need_reset = false;        
     }
-    if (!citten) {
+    if (!citten || allrpr_pcs.marks.size () <= 2 * max_var + 1) {
       LOG ("Initializing fresh Kitten...");
       if (opts.allrprreport)
         printf ("\nKIT Kitten Size 0\n"); // TODO Remove
@@ -137,7 +137,7 @@ namespace CaDiCaL {
         }
       allrpr_pcs.reasons.clear ();
       allrpr_pcs.marks.resize (2 * max_var + 3); 
-      memset (allrpr_pcs.marks.data(), 0, marks.size ());
+      fill(allrpr_pcs.marks.begin(), allrpr_pcs.marks.end(), 0);
       //allrpr_pcs.marks.clear (); // Clear all marks
       allrpr_pcs.internal = this;
       allrpr_last_size_after_reset = 0;
