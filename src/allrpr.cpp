@@ -115,7 +115,7 @@ namespace CaDiCaL {
       allrpr_reset_citten ();
       allrpr_need_reset = false;        
     }
-    if (!citten) {
+    if (!citten || allrpr_pcs.marks.size () <= (size_t) 2 * max_var + 1) {
       LOG ("Initializing fresh Kitten...");
       if (opts.allrprreport)
         printf ("\nKIT Kitten Size 0\n"); // TODO Remove
@@ -137,8 +137,8 @@ namespace CaDiCaL {
         }
       allrpr_pcs.reasons.clear ();
       allrpr_pcs.marks.resize (2 * max_var + 3); 
-      memset (allrpr_pcs.marks.data(), 0, marks.size ());
-      //allrpr_pcs.marks.clear (); // Clear all marks
+      fill(allrpr_pcs.marks.begin(), allrpr_pcs.marks.end(), 0);
+      
       allrpr_pcs.internal = this;
       allrpr_last_size_after_reset = 0;
       stats.allrpr.kittenresets++;
@@ -640,84 +640,87 @@ extern "C" {
 			work.push_back (lit);
 			set_worked (lit, pcs);			
 		}
-		LOG (work, "initialized work to");
-		// Now start at the end of work and look for further propagations given
-		// the valuations by the marks. If a literal could propagate, we push it 
-		// onto work and mark it.
-		size_t idx = 0;
-		while (idx < work.size () && extracls < opts.allrpraddthresh) {
-			int lit = work[idx];
-			++idx;
-			assert (is_worked (lit, pcs));
-			LOG ("working on %d", lit);
-			if (is_in_kitten (lit, pcs)) {
-				LOG ("%d watch list clauses probably are already in kitten", -lit);
-				continue;
-			}
-			set_in_kitten (lit, pcs);
-				
-			LOG ("Checking watch list of %d", -lit);
-			Watches &ws = watches (-lit);
-			const const_watch_iterator eow = ws.end ();
-			watch_iterator j = ws.begin ();
-			while (j != eow) {
-				const Watch w = *j++;
-				int prop_lit = 0;
-				if (w.size > opts.allrprextmaxsize)
-					continue;
-				if (w.clause->added) {
-					LOG (w.clause, "Skipping already added clause");
+		if (opts.allrprextra) {
+			LOG (work, "initialized work to");
+			// Now start at the end of work and look for further propagations given
+			// the valuations by the marks. If a literal could propagate, we push it 
+			// onto work and mark it.
+			size_t idx = 0;
+			while (idx < work.size () && extracls < opts.allrpraddthresh) {
+				int lit = work[idx];
+				++idx;
+				assert (is_worked (lit, pcs));
+				LOG ("working on %d", lit);
+				if (is_in_kitten (lit, pcs)) {
+					LOG ("%d watch list clauses probably are already in kitten", -lit);
 					continue;
 				}
-				// Filter clauses whose dist is too high -------------------------------
-				int nb_in_c = 0;
-				for (const int &l : *w.clause) {
-					if (!is_base (l, pcs))
-						nb_in_c++;
-				}
-				if (nb_in_c > opts.allrprdist) {
-					LOG (w.clause, "skipping too high dist");
-					w.clause->added = true; // mark added so it is skipped in the future
-					unmarkcls.push_back (w.clause);
-					continue;
-				}
-				// ---------------------------------------------------------------------
-
-				if (clause_is_qualified (w.clause, prop_lit, pcs)) {
-					if (extracls >= opts.allrpraddthresh) {
-						LOG ("Reached addition threshold of %lld", opts.allrpraddthresh);
-						break;
-					}
-					if (!prop_lit) {
-						LOG (w.clause, "Adding possibly conflict");
-						feed_reason (pcs, w.clause);
-						pcs.is_extra.push_back (1);
-						extracls++;
-						w.clause->added = true;
+				set_in_kitten (lit, pcs);
+					
+				LOG ("Checking watch list of %d", -lit);
+				Watches &ws = watches (-lit);
+				const const_watch_iterator eow = ws.end ();
+				watch_iterator j = ws.begin ();
+				while (j != eow) {
+					const Watch w = *j++;
+					int prop_lit = 0;
+					if (w.size > opts.allrprextmaxsize)
 						continue;
-					} 
-					else {
-						LOG (w.clause, "Adding possibly propagating %d", prop_lit);
-						feed_reason (pcs, w.clause);
-						pcs.is_extra.push_back (1);
-						extracls++;
-						w.clause->added = true;
-						
-						// Mark and push to work, if wasn't work already
-						if (!is_true (prop_lit, pcs)) {
-							LOG ("%d is not set to true. setting true flag...", prop_lit);
-							set_true (prop_lit, pcs);
+					if (w.clause->added) {
+						LOG (w.clause, "Skipping already added clause");
+						continue;
+					}
+					// Filter clauses whose dist is too high -------------------------------
+					int nb_in_c = 0;
+					for (const int &l : *w.clause) {
+						if (!is_base (l, pcs))
+							nb_in_c++;
+					}
+					if (nb_in_c > opts.allrprdist) {
+						//LOG (w.clause, "skipping too high dist");
+						w.clause->added = true; // mark added so it is skipped in the future
+						unmarkcls.push_back (w.clause);
+						continue;
+					}
+					// ---------------------------------------------------------------------
+
+					if (clause_is_qualified (w.clause, prop_lit, pcs)) {
+						if (extracls >= opts.allrpraddthresh) {
+							LOG ("Reached addition threshold of %lld", opts.allrpraddthresh);
+							break;
 						}
-						// if the watch list of the literal wasn't yet traversed queue it up for work
-						if (!is_in_kitten (prop_lit, pcs) && !is_worked (prop_lit, pcs)) {
-							LOG ("%d wasn't in work yet. pushing to work...", prop_lit);
-							work.push_back (prop_lit);
-							set_worked (prop_lit, pcs);
-						}
-					} 
+						if (!prop_lit) {
+							LOG (w.clause, "Adding possibly conflict");
+							feed_reason (pcs, w.clause);
+							pcs.is_extra.push_back (1);
+							extracls++;
+							w.clause->added = true;
+							continue;
+						} 
+						else {
+							LOG (w.clause, "Adding possibly propagating %d", prop_lit);
+							feed_reason (pcs, w.clause);
+							pcs.is_extra.push_back (1);
+							extracls++;
+							w.clause->added = true;
+							
+							// Mark and push to work, if wasn't work already
+							if (!is_true (prop_lit, pcs)) {
+								LOG ("%d is not set to true. setting true flag...", prop_lit);
+								set_true (prop_lit, pcs);
+							}
+							// if the watch list of the literal wasn't yet traversed queue it up for work
+							if (!is_in_kitten (prop_lit, pcs) && !is_worked (prop_lit, pcs)) {
+								LOG ("%d wasn't in work yet. pushing to work...", prop_lit);
+								work.push_back (prop_lit);
+								set_worked (prop_lit, pcs);
+							}
+						} 
+					}
 				}
 			}
 		}
+		
 		LOG ("ALLRPR COLLECT MORE FINISHED COLLECTING %lld clauses", basecls + extracls);
 		LOG ("pcs.reasons (size: %zu):", pcs.reasons.size ());
 		stats.allrpr.added += basecls + extracls;
@@ -752,57 +755,6 @@ extern "C" {
 		STOP (allrprcollect);
 	}
 
-	void Internal::allrpr_traverse_binary_graph (allrpr_proof_clauses &pcs) {
-		vector<int> unset_true;
-		vector<int> queue;
-		//printf ("old clause = ");
-		int round = 0;
-		size_t round_end = clause.size ();
-		for (const int &lit : clause) {
-			queue.push_back (lit);
-		}
-		size_t idx = 0;
-		while (idx < round_end) {
-			const int lit = queue[idx++];
-			if (is_true (-lit, pcs)) {
-				set_target (lit, pcs); // lit removable
-				continue;
-			} 
-			set_true (-lit, pcs);
-			unset_true.push_back (-lit);
-			Watches &ws = watches (-lit);
-			const const_watch_iterator eow = ws.end ();
-			watch_iterator j = ws.begin ();
-			while (j != eow) {
-				const Watch w = *j++;
-				if (!w.binary ()) { // skip non-binary clauses
-					continue;
-				} 
-				if (is_true (w.blit, pcs)) // skip because already in queue if set to true
-					continue;
-				set_true (w.blit, pcs);
-				//queue.push_back (w.blit);
-				unset_true.push_back (w.blit);
-			}
-		}
-		for (const int &lit : unset_true) {
-			allrpr_mark (lit, pcs) &= ~TRUE;
-		}
-		vector<int> new_clause;
-		//printf ("\nnew clause = ");
-		for (const int &lit : clause) {
-			if (is_target (lit, pcs)) {
-				stats.allrpr.binmini++;
-				allrpr_mark (lit, pcs) &= ~TARGET;
-			}
-			else {
-				//printf ("%d ", lit);
-				//new_clause.push_back (lit);
-			}
-		}
-		clause = new_clause;
-		//printf ("\nDone!\n");
-	}
 // ----------------------------------------------------------------------------//
 
 	// Build the LRAT chain(s) for the core learned clause. For intermediate 
@@ -896,7 +848,7 @@ extern "C" {
 	}
 
 	// Called as the final round of attempted minimization. Here we finally also
-	// produce the 
+	// produce the proof
 	// 
 	void Internal::allrpr_kitten_catch_rat (int uip, allrpr_mini_pcs &mini_pcs) {
 		START (allrprsolve);
@@ -977,8 +929,10 @@ extern "C" {
       if (!final.empty ()) {
       	const int old_size = (int) clause.size ();
       	if (opts.allrprreorder && old_size > (int) final.size ()) {
+      		LOG ("Reorder clause...");
       		clause = mini_pcs.final_clause;
-      		allrpr_sort_shrunken ();
+      		minimize_sort_clause ();
+      		reverse (clause.begin (), clause.end ());
       		shuffle = false;
       	} else 
       		shuffle = true;
