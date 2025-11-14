@@ -1272,9 +1272,7 @@ void Internal::analyze () {
       allrpr_init_citten ();
       allrpr_collect_all (allrpr_pcs);
 
-      if (opts.allrprshufflea)
-        allrpr_shuffle (clause);
-      else if (opts.allrprorder) // sort clause by increasing trail position
+      if (opts.allrprorder) // sort clause by increasing trail position
         minimize_sort_clause ();
       else if (opts.allrprreverse) { // sort clause by decreasing trail position
         minimize_sort_clause ();

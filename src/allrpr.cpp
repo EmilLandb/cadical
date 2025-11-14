@@ -306,7 +306,10 @@ extern "C" {
   	//if (opts.log)
   	//	kitten_set_logging (citten);
   	//#endif
-
+    if (opts.allrprshufflea && !opts.allrprorder && !opts.allrprreverse) {
+    	kitten_shuffle_assumptions (citten);
+    }
+        
     if (opts.allrprshufflec) {
     	kitten_shuffle_clauses (citten);
     }
