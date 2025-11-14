@@ -75,13 +75,13 @@ void Stats::print (Internal *internal) {
           relative (stats.allrpr.kittensize, stats.allrpr.kittencalls));
      PRT ("  kittenresets:  %15" PRId64 "   %10.2f    interval",
           stats.allrpr.kittenresets,
-          relative (stats.allrpr.kittenresets, stats.allrpr.kittencalls));
+          relative (stats.allrpr.kittencalls, stats.allrpr.kittenresets));
      PRT ("  learnedlits    %15" PRId64 "   %10.2f    per successful minimization (pre kitten)",
           stats.allrpr.slearnedlits,
           relative (stats.allrpr.slearnedlits, stats.allrpr.nminimized));
-     PRT ("  furthermini    %15" PRId64 "   %10.2f %%  of kitten calls",
+     PRT ("  furthermini    %15" PRId64 "   %10.2f %%  of conflicts",
           stats.allrpr.nminimized,
-          percent (stats.allrpr.nminimized, stats.allrpr.kittencalls));
+          percent (stats.allrpr.nminimized, stats.conflicts));
      PRT ("  minilits       %15" PRId64 "   %10.2f    per further minimization",
           stats.allrpr.sminimized,
           relative (stats.allrpr.sminimized, stats.allrpr.nminimized));
@@ -91,15 +91,15 @@ void Stats::print (Internal *internal) {
      PRT ("  miniagain      %15" PRId64 "   %10.2f %%  of minilits",
           stats.allrpr.miniagain,
           percent (stats.allrpr.miniagain, stats.allrpr.sminimized));
-     PRT ("  improvedglue   %15" PRId64 "   %10.2f %%  of further minimizations",
+     PRT ("  improvedglue   %15" PRId64 "   %10.2f %%  of conflicts",
           stats.allrpr.nimprovedglue,
-          percent (stats.allrpr.nimprovedglue, stats.allrpr.nminimized));
-     PRT ("  improvedtier2  %15" PRId64 "   %10.2f %%  of glue improvements",
+          percent (stats.allrpr.nimprovedglue, stats.conflicts));
+     PRT ("  improvedtier2  %15" PRId64 "   %10.2f %%  of conflicts",
           stats.allrpr.liftedtier2,
-          percent (stats.allrpr.liftedtier2, stats.allrpr.nimprovedglue));
-     PRT ("  improvedtier1  %15" PRId64 "   %10.2f %%  of glue improvements",
+          percent (stats.allrpr.liftedtier2, stats.conflicts));
+     PRT ("  improvedtier1  %15" PRId64 "   %10.2f %%  of conflicts",
           stats.allrpr.liftedtier1,
-          percent (stats.allrpr.liftedtier1, stats.allrpr.nimprovedglue));
+          percent (stats.allrpr.liftedtier1, stats.conflicts));
      PRT ("  totalglue      %15" PRId64 "   %10.2f    per glue improvement",
           stats.allrpr.simprovedglue,
           relative (stats.allrpr.simprovedglue, stats.allrpr.nimprovedglue));
@@ -112,53 +112,15 @@ void Stats::print (Internal *internal) {
      PRT ("  baseskipped    %15" PRId64 "   %10.2f    per baseadded",
           stats.allrpr.baseskipped,
           relative (stats.allrpr.baseskipped, stats.allrpr.baseadded));
-     PRT ("  binmini        %15" PRId64 "   %10.2f    per whatever",
-          stats.allrpr.binmini,
-          relative (stats.allrpr.binmini, stats.allrpr.baseadded));
-  }
-  if (stats.allrpr.basecsinminicore) {
-     PRT ("  minicorecls    %15" PRId64 "   %10.2f    per successful minimization",
-          stats.allrpr.basecsinminicore + stats.allrpr.extracsinminicore,
-          relative (stats.allrpr.basecsinminicore + stats.allrpr.extracsinminicore, stats.allrpr.nminimized));
-     PRT ("  baseinmini     %15" PRId64 "   %10.2f %%  of cls in mini core",
-          stats.allrpr.basecsinminicore,
-          percent (stats.allrpr.basecsinminicore, stats.allrpr.basecsinminicore + stats.allrpr.extracsinminicore));
-     PRT ("  extrainmini    %15" PRId64 "   %10.2f %%  of cls in mini core",
-          stats.allrpr.extracsinminicore,
-          percent (stats.allrpr.extracsinminicore, stats.allrpr.basecsinminicore + stats.allrpr.extracsinminicore));
-     PRT ("  extra2         %15" PRId64 "   %10.2f %%  of cls in mini core",
-          stats.allrpr.extra2inminicore,
-          percent (stats.allrpr.extra2inminicore, stats.allrpr.basecsinminicore + stats.allrpr.extracsinminicore));
-     PRT ("  extra3         %15" PRId64 "   %10.2f %%  of cls in mini core",
-          stats.allrpr.extra3inminicore,
-          percent (stats.allrpr.extra3inminicore, stats.allrpr.basecsinminicore + stats.allrpr.extracsinminicore));
-     PRT ("  extra4         %15" PRId64 "   %10.2f %%  of cls in mini core",
-          stats.allrpr.extra4inminicore,
-          percent (stats.allrpr.extra4inminicore, stats.allrpr.basecsinminicore + stats.allrpr.extracsinminicore));
-     PRT ("  extra>4        %15" PRId64 "   %10.2f %%  of cls in mini core",
-          stats.allrpr.extragr4inminicore,
-          percent (stats.allrpr.extragr4inminicore, stats.allrpr.basecsinminicore + stats.allrpr.extracsinminicore));
-     PRT ("  baselits       %15" PRId64 "   %10.2f %%  of all extra clause lits",
-          stats.allrpr.baselits,
-          percent (stats.allrpr.baselits, stats.allrpr.baselits + stats.allrpr.nonbaselits));
-     PRT ("  nonbaselits    %15" PRId64 "   %10.2f %%  of all extra clause lits",
-          stats.allrpr.nonbaselits,
-          percent (stats.allrpr.nonbaselits, stats.allrpr.baselits + stats.allrpr.nonbaselits));
-     PRT ("  dist0extras    %15" PRId64 "   %10.2f %%  of all extras",
-          stats.allrpr.dist0extra,
-          percent (stats.allrpr.dist0extra, stats.allrpr.extracsinminicore));
-     PRT ("  dist1extras    %15" PRId64 "   %10.2f %%  of all extras",
-          stats.allrpr.dist1extra,
-          percent (stats.allrpr.dist1extra, stats.allrpr.extracsinminicore));
-     PRT ("  dist2extras    %15" PRId64 "   %10.2f %%  of all extras",
-          stats.allrpr.dist2extra,
-          percent (stats.allrpr.dist2extra, stats.allrpr.extracsinminicore));
-     PRT ("  dist3extras    %15" PRId64 "   %10.2f %%  of all extras",
-          stats.allrpr.dist3extra,
-          percent (stats.allrpr.dist3extra, stats.allrpr.extracsinminicore));
-     PRT ("  distgr3extras  %15" PRId64 "   %10.2f %%  of all extras",
-          stats.allrpr.distgr3extra,
-          percent (stats.allrpr.distgr3extra, stats.allrpr.extracsinminicore));
+     PRT ("  reanalyzed     %15" PRId64 "   %10.2f %%  of minimizations",
+          stats.allrpr.reanalyze,
+          percent (stats.allrpr.reanalyze, stats.allrpr.nminimized));
+     PRT ("  cadicincore     %15" PRId64 "   %10.2f    per mini core",
+          stats.allrpr.cadicincore,
+          relative (stats.allrpr.cadicincore, stats.allrpr.nminimized));
+     PRT ("  kittenincore    %15" PRId64 "   %10.2f    per mini core",
+          stats.allrpr.kittenincore,
+          relative (stats.allrpr.kittenincore, stats.allrpr.nminimized));
   }
   if (all || stats.blocked) {
     PRT ("blocked:         %15" PRId64

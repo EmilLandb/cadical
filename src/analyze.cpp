@@ -1194,9 +1194,6 @@ void Internal::analyze () {
   int size = (int) clause.size ();
   int glue = (int) levels.size () - 1; // changed from const. Needs update after allrpr
   LOG (clause, "1st UIP size %d and glue %d clause", size, glue);
-  // TODO: Should this be postponed to after kitten minimization?
-  UPDATE_AVERAGE (averages.current.glue.fast, glue);
-  UPDATE_AVERAGE (averages.current.glue.slow, glue);
   stats.learned.literals += size;
   stats.learned.clauses++;
   assert (glue < size);
@@ -1228,23 +1225,10 @@ void Internal::analyze () {
     }
     size = (int) clause.size ();
       
-    // Update decision heuristics.
-    //
-    if (opts.bump) {
-      bump_also_all_reason_literals ();
-      bump_variables ();
-    }
-
     if (external->learner)
       external->export_learned_large_clause (clause);
   } else if (external->learner)
       external->export_learned_unit_clause (-uip);
-
-  // Update actual size statistics.
-  //
-  stats.units += (size == 1);
-  stats.binaries += (size == 2);
-  UPDATE_AVERAGE (averages.current.size, size);
 
   STOP (analyze);
 
@@ -1273,10 +1257,8 @@ void Internal::analyze () {
     LOG ("Learned clause has qualified for a further minimization attempt");
     allrpr_check_kitten_and_pcs ();
     assert (citten);
-    // Fix initial assumption order
-    if (opts.allrprshrinkorder)
-      allrpr_sort_shrunken ();
-    else if (opts.allrprreverse) { // sort clause by decreasing trail position
+    // Optionally fix initial assumption order
+    if (opts.allrprreverse) { // sort clause by decreasing trail position
       minimize_sort_clause ();
       reverse (clause.begin (), clause.end ());
     }
@@ -1305,8 +1287,8 @@ void Internal::analyze () {
     }
 
     #ifdef LOGGING
-    if (opts.log)
-      kitten_set_logging (citten);
+    //if (opts.log)
+    //  kitten_set_logging (citten);
     #endif
 
     const int post_shrink_size = (int) clause.size ();
@@ -1349,17 +1331,11 @@ void Internal::analyze () {
       
       kitten_successful_mini = true;
 
-      if (opts.allrprmorestats)
-        allrpr_update_extra_stats (allrpr_pcs);
-
+      stats.allrpr.cadicincore += mini_pcs.cadi_core_clauses;
+      stats.allrpr.kittenincore += mini_pcs.kitten_core_clauses;
       stats.allrpr.nminimized++;
       stats.allrpr.sminimized += post_shrink_size - new_size;
       stats.allrpr.slearnedlits += (int64_t) post_shrink_size; 
-
-      // Need to provide own lrat proof
-      //lrat_chain.clear ();
-      //unit_chain.clear ();
-      //allrpr_build_lrat (allrpr_pcs);
 
       clause = std::move(klause);
       LOG (clause, "Further minimization to");
@@ -1387,10 +1363,24 @@ void Internal::analyze () {
       }
     } 
     if (opts.allrprreport)
-      printf ("\n");// TODO: remove false
+      printf ("\n");
+    size = new_size;
   } 
 
   START (analyze);
+  
+  // Update decision heuristics.
+  //
+  if (opts.bump) {
+    bump_also_all_reason_literals ();
+    bump_variables ();
+  }
+
+  // Update actual size statistics.
+  //
+  stats.units += (size == 1);
+  stats.binaries += (size == 2);
+  UPDATE_AVERAGE (averages.current.size, size);
 
   // Determine back-jump level, learn driving clause, backtrack and assign
   // flipped 1st UIP literal.
@@ -1406,6 +1396,8 @@ void Internal::analyze () {
   // return to propagate, which will then trigger conflict analysis again.
   //
   if (clause.size () > 1 && var (uip).level == var (clause[1]).level) {
+    assert (jump == var (uip).level);
+    stats.allrpr.reanalyze++;
     LOG (driving_clause, "Setting as new conflict ");
     conflict = driving_clause; // analyze again
 
@@ -1415,10 +1407,7 @@ void Internal::analyze () {
     clear_unit_analyzed_literals ();
     clear_analyzed_levels ();
     clause.clear ();
-    //lrat_chain.clear ();
-
-    // ALLRPR delete intermediate proof steps.
-    //allrpr_delete_intermediate_lrat (allrpr_pcs);
+    
     allrpr_pcs.proof_clauses.clear (); // clear proof clauses after every lrat generation but keep reasons for now
 
 
@@ -1457,6 +1446,9 @@ void Internal::analyze () {
     LOG ("Deleting intermediate lrat steps, since kitten minimized");
     allrpr_delete_intermediate_lrat (allrpr_pcs);
   }
+  UPDATE_AVERAGE (averages.current.glue.fast, glue);
+  UPDATE_AVERAGE (averages.current.glue.slow, glue);
+
   allrpr_pcs.proof_clauses.clear (); // clear proof clauses after every lrat generation but keep reasons for now
   lrat_chain.clear ();
   STOP (analyze);

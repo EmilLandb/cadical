@@ -28,7 +28,6 @@ OPTION( allrprextmaxsize,  4,  0,2e9,0,0,1, "limit on allowed exra reason size")
 OPTION( allrprextra,       1,  0,  1,0,0,1, "collect extra clauses") \
 OPTION( allrprfiltershrink,0,  0,  1,0,0,1, "only try further minimization if shrink was successful") \
 OPTION( allrprgluethresh,  0,  0,  1,0,0,1, "glue threshold for trying kitten minimization (predicate likely_to_be_kept)") \
-OPTION( allrprmorestats,   0,  0,  1,0,0,0, "collect more stats") \
 OPTION( allrprreorder,     0,  0,  1,0,0,0, "order after every minimizing retry") \
 OPTION( allrprreport,      0,  0,  1,0,0,0, "print some information without logging") \
 OPTION( allrprresethresh,1e3,  0,1e4,0,0,1, "secondary kitten size threshold for resets") \
@@ -55,7 +54,7 @@ OPTION( bumpreason,        1,  0,  1,0,0,1, "bump reason literals too") \
 OPTION( bumpreasondepth,   1,  1,  3,0,0,1, "bump reason depth") \
 OPTION( bumpreasonlimit,  10,  1,2e9,0,0,1, "bump reason limit") \
 OPTION( bumpreasonrate,  100,  1,2e9,0,0,1, "bump reason decision rate") \
-OPTION( check,             0,  0,  1,0,0,0, "enable internal checking") \
+OPTION( check,             0,  0,  0,0,0,0, "enable internal checking") \
 OPTION( checkassumptions,  1,  0,  1,0,0,0, "check assumptions satisfied") \
 OPTION( checkconstraint,   1,  0,  1,0,0,0, "check constraint satisfied") \
 OPTION( checkfailed,       1,  0,  1,0,0,0, "check failed literals form core") \

@@ -30,8 +30,9 @@ namespace CaDiCaL {
 	// Test for retry
 	struct allrpr_mini_pcs {
 		Internal *internal;
+		uint64_t cadi_core_clauses = 0;
+		uint64_t kitten_core_clauses = 0;
 		std::vector<int> final_clause;
-		bool is_learned;
 	};
 
 }

@@ -253,6 +253,7 @@ extern "C" {
 	// Maps original (cadical known) clauses back to cadical ids (including units).
 	// Learned clauses won't be given a cadical id until their proof is emitted.
 	//
+	/*
 	static void extract_clause_from_kitten (void *state, unsigned kitten_id, unsigned allrpr_id, bool learned,
 									size_t clause_size, const unsigned *elits,
 									size_t chain_size, const unsigned *chain) {
@@ -302,29 +303,50 @@ extern "C" {
 			LOG (pc.literals, "traced [%lld] %s", learned ? -1 : pc.cadical_id, learned ? "kit learned" : "original");
   	core.push_back (pc);
 	}
-
+	*/
 
 	// Lightweight callback function that just extracts the final learned clause
 	// for checking whether and in which way minimization was successful.
 	// This is used in allrpr_kitten_attempt_minimize, where we don't care about 
 	// producing the LRAT proof yet
 	//
-	static void get_final_from_core (void *state, bool learned, 
+	static void get_final_from_core_with_bumping (void *state, bool learned, 
 																	 size_t clause_size, const unsigned *elits) {
-		//if (!learned) {
-		//	return;
-		//}
-
+		(void) learned;
 		allrpr_mini_pcs *mini_pcs = (allrpr_mini_pcs *) state;
 		Internal *internal = mini_pcs->internal;
 		std::vector<int> &final = mini_pcs->final_clause;
 		// In some weird situations the failing clause already exists in cadical
-		mini_pcs->is_learned = learned;
-
 		final.clear ();
 		const unsigned *end = elits + clause_size;
 		for (const unsigned *p = elits; p != end; p++) {
-			final.push_back (internal->citten2lit (*p));
+			const int lit = internal->citten2lit (*p);
+			final.push_back (lit);
+			// also add to analyze for bumping if not added yet, i.e. if not 'seen'
+			Flags &f = internal->flags (lit);
+			if (!f.seen) {
+				LOG ("Unseen literal %d marked for bumping", lit);
+				f.seen = true;
+				internal->analyzed.push_back (lit);
+			}
+		}
+	#ifdef LOGGING
+		LOG (final, "failing clause");
+	#endif
+	}
+
+	static void get_final_from_core (void *state, bool learned, 
+																	 size_t clause_size, const unsigned *elits) {
+		(void) learned;
+		allrpr_mini_pcs *mini_pcs = (allrpr_mini_pcs *) state;
+		Internal *internal = mini_pcs->internal;
+		std::vector<int> &final = mini_pcs->final_clause;
+		// In some weird situations the failing clause already exists in cadical
+		final.clear ();
+		const unsigned *end = elits + clause_size;
+		for (const unsigned *p = elits; p != end; p++) {
+			const int lit = internal->citten2lit (*p);
+			final.push_back (lit);
 		}
 	#ifdef LOGGING
 		LOG (final, "failing clause");
@@ -834,17 +856,16 @@ extern "C" {
  	// Checks if various preconditions for further minimization attempts are met
 	//
 	bool Internal::allrpr_try_minimize (int glue, int size, const int old_size) const {
-		const bool sizequalified = size < lim.keptsize || size < opts.allrprsizethresh;
-		const bool gluequalified = glue <= lim.keptglue || glue <= tier2[false];
-		// the lrat chain already contains the necessary base reasons so its size
-		// can be used as a filter. E.g. linked_list_swap_contents*.cnf problems 
-		// produce conflict with huge implication graphs. These conflicts should be
-		// skipped because using kitten here will slow down the solver immensely
-		const bool basesizequalified = (int) lrat_chain.size () < opts.allrprbasethresh;
-		return (!opts.allrprgluethresh || gluequalified) &&
-					 (!opts.allrprsizethresh || sizequalified) &&
-					 (!opts.allrprfiltershrink || old_size > size) &&
-					 basesizequalified && size > 1;
+		// the first three filters are the same as in likely_to_be_kept_clause
+		if (glue <= tier2[false])
+			return true;
+		if (glue > lim.keptglue)
+			return false;
+		if (size > lim.keptsize)
+			return false;
+		if (opts.allrprfiltershrink && old_size == size)
+			return false;
+		return true;
 	}
 
 	// Called as the final round of attempted minimization. Here we finally also
@@ -867,12 +888,14 @@ extern "C" {
 			// Now compute the clausal core and trace it. This will provide resolution
 			// chains, which can be used for deriving an LRAT proof.
 			LOG ("Computing clausal core...");
-			kitten_compute_clausal_core (citten, nullptr);	
+			mini_pcs.cadi_core_clauses = kitten_compute_clausal_core (citten, &mini_pcs.kitten_core_clauses);
+			LOG ("cadical core clauses: %lld", mini_pcs.cadi_core_clauses);
+			LOG ("kitten core clauses: %lld", mini_pcs.kitten_core_clauses);
 		}
 		// In each case we need to (re)trace the core. I.e. retracing if the empty
 		// clause was already derived in an earlier minimization try
 		LOG ("Tracing clausal core...");
-		kitten_traverse_core_clauses (citten, &mini_pcs, get_final_from_core);
+		kitten_traverse_core_clauses (citten, &mini_pcs, get_final_from_core_with_bumping);
 		stats.allrpr.kittencalls++;
 		STOP (allrprsolve);
 	}
@@ -918,9 +941,10 @@ extern "C" {
       }
 
       allrpr_kitten_attempt_minimize (mini_pcs, i, shuffle);
-      LOG (mini_pcs.final_clause, "clause after attempt %i", i);
+      LOG (mini_pcs.final_clause, "clause after attempt %i:", i);
       if (mini_pcs.final_clause.size () < clause.size ()) { // successful further further
         mini_again++;
+        LOG (mini_pcs.final_clause, "%d minimized %s to", mini_again, mini_again > 0 ? "again" : "for the first time");
         if (opts.allrprreport) {
           printf ("KIT minimized in round %d\n", i);
         	printf ("KIT final size: %zu\n", mini_pcs.final_clause.size ());
@@ -928,9 +952,9 @@ extern "C" {
       }
       if (!final.empty ()) {
       	const int old_size = (int) clause.size ();
+      	clause = mini_pcs.final_clause;
       	if (opts.allrprreorder && old_size > (int) final.size ()) {
       		LOG ("Reorder clause...");
-      		clause = mini_pcs.final_clause;
       		minimize_sort_clause ();
       		reverse (clause.begin (), clause.end ());
       		shuffle = false;
@@ -942,89 +966,6 @@ extern "C" {
         break;
       }
     }
-	}
-
-	// update stats after successful further minimization
-	//
-	void Internal::allrpr_update_extra_stats (allrpr_proof_clauses &pcs) {
-		LOG ("ALLRPR UPDATE CORE STATS AFTER SUCCESS");
-
-		int coreextras = 0;
-		int corebase = 0;
-		int binary = 0;
-		int ternary = 0;
-		int quarternary = 0;
-		int grquarternary = 0;
-
-		for (const auto &pc : pcs.proof_clauses) {
-			if (pc.learned) {
-				LOG (pc.literals, "kitten learned");
-				continue;
-			}
-			if (pc.literals.size () == 1) {
-				LOG (pc.literals, "unit");
-				corebase++;
-				continue;
-			}
-			if (!pcs.is_extra[pc.allrpr_id]) {
-				LOG (pc.literals, "non-extra [%lld]", pc.cadical_id);
-				corebase++;
-				continue;
-			}
-			coreextras++;
-			int base = 0;
-			for (const int &lit : pc.literals) {
-				if (!is_base (lit, pcs)) {
-					LOG ("non base %d", lit);
-				}
-				else {
-					LOG ("base %d", lit);
-					base++;
-				}
-			}
-			// collect size of extra clause stats
-			const int size = (int) pc.literals.size ();
-			switch (size) {
-				case 2:
-					binary++;
-					break;
-				case 3:
-					ternary++;
-					break;
-				case 4:
-					quarternary++;
-					break;
-				default:
-					grquarternary++;
-					break;
-			}
-			// collect distance from base set stats
-			switch (size - base) {
-				case 0:
-					internal->stats.allrpr.dist0extra++;
-					break;
-				case 1:
-					internal->stats.allrpr.dist1extra++;
-					break;
-				case 2:
-					internal->stats.allrpr.dist2extra++;
-					break;
-				case 3:
-					internal->stats.allrpr.dist3extra++;
-					break;
-				default:
-					internal->stats.allrpr.distgr3extra++;
-					break;
-			}
-			stats.allrpr.baselits += base;
-			stats.allrpr.nonbaselits +=	size - base;	
-		}
-		stats.allrpr.extracsinminicore += coreextras;
-		stats.allrpr.basecsinminicore += corebase;
-		stats.allrpr.extra2inminicore += binary;
-		stats.allrpr.extra3inminicore += ternary;
-		stats.allrpr.extra4inminicore += quarternary;
-		stats.allrpr.extragr4inminicore += grquarternary;
 	}
 
 	// Updates potentially changed glue value and glue related statistics
@@ -1056,12 +997,6 @@ extern "C" {
 				stats.allrpr.liftedtier2++;
 			}
 		}
-		/*
-		if (!glue) {
-			clause.clear ();
-			clause.push_back (-control[lowest_level].decision);
-		}
-		*/
 	}
 
 

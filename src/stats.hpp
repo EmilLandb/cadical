@@ -400,25 +400,14 @@ struct Stats {
     int64_t slearnedlits = 0;  // total number of literals in the final learned clause
     int64_t liftedtier1 = 0; // number of times a clause got lifted to tier 1 by further minimization
     int64_t liftedtier2 = 0; // number of times a clause got lifted to tier 2 by further minimization
-    int64_t basecsinminicore = 0; // number of base clauses in cores after successful minimization
-    int64_t extracsinminicore = 0; // number of extra clauses in cores after successful minimization
-    int64_t extra2inminicore = 0; // number of binary extra clauses in cores after successful minimization
-    int64_t extra3inminicore = 0; // number of ternary extra clauses in cores after successful minimization
-    int64_t extra4inminicore = 0; // number of 4-ary extra clauses in cores after successful minimization
-    int64_t extragr4inminicore = 0; // number of > 4-ary extra clauses in cores after successful minimization
-    int64_t baselits = 0; // number of literals in extra clauses in mini core that are in base
-    int64_t nonbaselits = 0; // number of literals in extra clauses in mini core that are not in base
-    int64_t dist0extra = 0; // number of extra clauses that are zero lits away from base
-    int64_t dist1extra = 0; // number of extra clauses that are one lit away from base
-    int64_t dist2extra = 0; // number of extra clauses that are two lits away from base
-    int64_t dist3extra = 0; // number of extra clauses that are three lits away from base
-    int64_t distgr3extra = 0; // number of extra clauses that are more than three lits away from base
     int64_t withminiagain = 0; // number of times a kitten call with retries lead to a further further minimization
     int64_t miniagain = 0; // number of times a further further minimization was achieved by retrying
     int64_t kittensize = 0; // number of clauses in kitten after adding
     int64_t kittenresets = 0; // number of times kitten got reset
     int64_t baseskipped = 0; // number of base reasons that were already in kitten
-    int64_t binmini = 0;
+    int64_t reanalyze = 0; // number of times analysis needed to be retriggered
+    int64_t cadicincore = 0; // number of cadical clauses in kitten cores
+    int64_t kittenincore = 0; // number of kitten learned klauses in kitten cores
   } allrpr;
 
   struct {
