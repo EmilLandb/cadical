@@ -36,6 +36,7 @@ extern "C" {
 	// Maps original (cadical known) clauses back to cadical ids (including units).
 	// Learned clauses won't be given a cadical id until their proof is emitted.
 	//
+	/*
 	static void extract_clause_from_kitten (void *state, unsigned kitten_id, unsigned allrpr_id, bool learned,
 									size_t clause_size, const unsigned *elits,
 									size_t chain_size, const unsigned *chain) {
@@ -92,8 +93,31 @@ extern "C" {
 	#endif
   	core.push_back (pc);
 	}
-} // end extern "C"
+	*/
 
+	static void get_final_from_core (void *state, bool learned, 
+																	 size_t clause_size, const unsigned *elits) {
+		(void) learned;
+		allrpr_mini_pcs *mini_pcs = (allrpr_mini_pcs *) state;
+		Internal *internal = mini_pcs->internal;
+		std::vector<int> &final = mini_pcs->final_clause;
+		// In some weird situations the failing clause already exists in cadical
+		final.clear ();
+		const unsigned *end = elits + clause_size;
+		for (const unsigned *p = elits; p != end; p++) {
+			const int lit = internal->citten2lit (*p);
+			final.push_back (lit);
+		}
+	#ifdef LOGGING
+		LOG (final, "failing clause");
+	#endif
+	}
+	
+
+
+
+} // end extern "C"
+	
 	
 	inline void Internal::feed_reason (allrpr_proof_clauses &pcs, Clause *reason) {
 		LOG (reason, "Adding reason");
@@ -103,10 +127,10 @@ extern "C" {
 	}
 
 	inline void Internal::feed_unit_reason (int unit) {
-		int64_t id = unit_id (unit);
-		assert (unit_id (unit));
-		LOG ("Adding unit clause[%lld] %d", id, unit);
-		citten_clause_with_id (citten, id, 1, &unit);
+		//int64_t id = unit_id (unit);
+		//assert (unit_id (unit));
+		LOG ("Adding unit clause[%lld] %d", -1, unit);
+		citten_clause_with_id (citten, 0, 1, &unit);
 	}
 
 	// collect all reasons and all possible propagation candidates (from trail)
@@ -285,7 +309,7 @@ extern "C" {
 
 	// Reconstructs a LRAT chain for the learned clause in internal->clause.
 	// 
-	void Internal::allrpr_kitten_catch_rat (int &uip, allrpr_proof_clauses &pcs) {
+	void Internal::allrpr_kitten_catch_rat (int &uip, allrpr_mini_pcs &mini_pcs) {
 		START (allrprsolve);
 		assert (citten);
 	
@@ -294,14 +318,10 @@ extern "C" {
 		// Some of the assumptions should then fail resulting in a proof of clause
 		LOG (clause, "LEARNED CLAUSE: ");
 		for (const auto &lit: clause) {
-      if (lit == -uip)
-        continue;
       LOG ("KITTEN ASSUME %d", -lit);
       kitten_assume_signed (citten, -lit);
     }
-    LOG ("KITTEN ASSUME UIP %d", uip);
-    kitten_assume_signed (citten, uip); // Assume uip last (not not uip)
-
+    
     //#ifdef LOGGING
   	//if (opts.log)
   	//	kitten_set_logging (citten);
@@ -319,8 +339,8 @@ extern "C" {
 
 		// Now compute the clausal core and trace it. This will provide resolution
 		// chains, which can be used for deriving an LRAT proof.
-		kitten_compute_clausal_core (citten, nullptr);
-		kitten_trace_core (citten, &pcs, extract_clause_from_kitten);
+		mini_pcs.cadi_core_clauses = kitten_compute_clausal_core (citten, &mini_pcs.kitten_core_clauses);
+		kitten_traverse_core_clauses (citten, &mini_pcs, get_final_from_core);
 		stats.allrpr.kittencalls++;
 		STOP (allrprsolve);
 	}

@@ -392,6 +392,8 @@ struct Stats {
     int64_t sglueaftershrink = 0; // total glue improvements after further minimization after successful shrinking
     int64_t liftedtier1 = 0; // number of times a clause got lifted to tier 1 by further minimization
     int64_t liftedtier2 = 0; // number of times a clause got lifted to tier 2 by further minimization
+    int64_t cadicincore = 0; // number of cadical clauses in kitten cores for successful minimization
+    int64_t kittenincore = 0; // number of kitten clauses in kitten cores for successful minimization
   } allrpr;
 
   Stats ();

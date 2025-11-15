@@ -26,5 +26,13 @@ namespace CaDiCaL {
 		std::vector<signed char> marks; // own marks for literals
 	};
 
+	// For version without LRAT
+	struct allrpr_mini_pcs {
+		Internal *internal;
+		uint64_t cadi_core_clauses = 0;
+		uint64_t kitten_core_clauses = 0;
+		std::vector<int> final_clause;
+	};
+
 }
 #endif

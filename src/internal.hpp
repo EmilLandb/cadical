@@ -763,7 +763,7 @@ struct Internal {
   void allrpr_collect_all (allrpr_proof_clauses &pcs); // collect all reasons and possible propagation candidates
   void allrpr_build_lrat (allrpr_proof_clauses &pcs); // builds LRAT proof from collected kitten core
   void allrpr_delete_intermediate_lrat (allrpr_proof_clauses &pcs); // deletes intermediate LRAT proof steps 
-  void allrpr_kitten_catch_rat (int &uip, allrpr_proof_clauses &pcs); // LRAT chain from kitten
+  void allrpr_kitten_catch_rat (int &uip, allrpr_mini_pcs &mini_pcs); // LRAT chain from kitten
   
   // Learning from conflicts in 'analyze.cc'.
   //

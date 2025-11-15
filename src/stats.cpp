@@ -71,54 +71,33 @@ void Stats::print (Internal *internal) {
      PRT ("  added:         %15" PRId64 "   %10.2f    per kitten call",
           stats.allrpr.added,
           relative (stats.allrpr.added, stats.allrpr.kittencalls));
-     PRT ("  coreclauses:   %15" PRId64 "   %10.2f    per kitten call",
-          stats.allrpr.ncoreclauses,
-          relative (stats.allrpr.ncoreclauses, stats.allrpr.kittencalls));
-     PRT ("  withinter      %15" PRId64 "   %10.2f %%  of kitten calls",
-          stats.allrpr.nintermediate,
-          percent (stats.allrpr.nintermediate, stats.allrpr.kittencalls));
-     PRT ("  intermediates  %15" PRId64 "   %10.2f    per with intermediates",
-          stats.allrpr.sintermediate,
-          relative (stats.allrpr.sintermediate, stats.allrpr.nintermediate));
      PRT ("  learnedlits    %15" PRId64 "   %10.2f    per kitten call (pre kitten)",
           stats.allrpr.slearnedlits,
           relative (stats.allrpr.slearnedlits, stats.allrpr.kittencalls));
-     PRT ("  furthermini    %15" PRId64 "   %10.2f %%  of kitten calls",
+     PRT ("  furthermini    %15" PRId64 "   %10.2f %%  of conflicts",
           stats.allrpr.nminimized,
-          percent (stats.allrpr.nminimized, stats.allrpr.kittencalls));
+          percent (stats.allrpr.nminimized, stats.conflicts));
      PRT ("  minilits       %15" PRId64 "   %10.2f    per further minimization",
           stats.allrpr.sminimized,
           relative (stats.allrpr.sminimized, stats.allrpr.nminimized));
-     PRT ("  improvedglue   %15" PRId64 "   %10.2f %%  of further minimizations",
+     PRT ("  improvedglue   %15" PRId64 "   %10.2f %%  of conflicts",
           stats.allrpr.nimprovedglue,
-          percent (stats.allrpr.nimprovedglue, stats.allrpr.nminimized));
-     PRT ("  improvedtier2  %15" PRId64 "   %10.2f %%  of glue improvements",
+          percent (stats.allrpr.nimprovedglue, stats.conflicts));
+     PRT ("  improvedtier2  %15" PRId64 "   %10.2f %%  of conflicts",
           stats.allrpr.liftedtier2,
-          percent (stats.allrpr.liftedtier2, stats.allrpr.nimprovedglue));
-     PRT ("  improvedtier1  %15" PRId64 "   %10.2f %%  of glue improvements",
+          percent (stats.allrpr.liftedtier2, stats.conflicts));
+     PRT ("  improvedtier1  %15" PRId64 "   %10.2f %%  of conflicts",
           stats.allrpr.liftedtier1,
-          percent (stats.allrpr.liftedtier1, stats.allrpr.nimprovedglue));
+          percent (stats.allrpr.liftedtier1, stats.conflicts));
      PRT ("  totalglue      %15" PRId64 "   %10.2f    per glue improvement",
           stats.allrpr.simprovedglue,
           relative (stats.allrpr.simprovedglue, stats.allrpr.nimprovedglue));
-     PRT ("  coreswithextra %15" PRId64 "   %10.2f %%  of kitten calls",
-          stats.allrpr.extraisincore,
-          percent (stats.allrpr.extraisincore, stats.allrpr.kittencalls));
-     PRT ("  extras         %15" PRId64 "   %10.2f    per core with extra",
-          stats.allrpr.extracsincore,
-          relative (stats.allrpr.extracsincore, stats.allrpr.extraisincore));
-     PRT ("  corewextra>2   %15" PRId64 "   %10.2f %%  of core with extra",
-          stats.allrpr.extragrbinaryincore,
-          percent (stats.allrpr.extragrbinaryincore, stats.allrpr.extraisincore));
-     PRT ("  extras>2       %15" PRId64 "   %10.2f    per core with extra",
-          stats.allrpr.extragrbinary,
-          relative (stats.allrpr.extragrbinary, stats.allrpr.extraisincore));
-     PRT ("  corewextra>3   %15" PRId64 "   %10.2f %%  of core with extra",
-          stats.allrpr.extragrternaryincore,
-          percent (stats.allrpr.extragrternaryincore, stats.allrpr.extraisincore));
-     PRT ("  extras>3       %15" PRId64 "   %10.2f    per core with extra",
-          stats.allrpr.extragrternary,
-          relative (stats.allrpr.extragrternary, stats.allrpr.extraisincore));
+     PRT ("  cadicincore    %15" PRId64 "   %10.2f    per mini core",
+          stats.allrpr.cadicincore,
+          relative (stats.allrpr.cadicincore, stats.allrpr.nminimized));
+     PRT ("  kittenincore   %15" PRId64 "   %10.2f    per mini core",
+          stats.allrpr.kittenincore,
+          relative (stats.allrpr.kittenincore, stats.allrpr.nminimized));
   }
   if (all || stats.blocked) {
     PRT ("blocked:         %15" PRId64
