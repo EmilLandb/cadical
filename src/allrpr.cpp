@@ -4,6 +4,61 @@ namespace CaDiCaL {
 
 	#define INVALID64 INT64_MAX
 	#define INVALID UINT_MAX
+	// ---------------------------------------------------------------------------
+	constexpr signed char TRUE   = 1 << 0;
+	constexpr signed char TARGET = 1 << 1;
+	constexpr signed char WORKED = 1 << 2;
+	constexpr signed char REASON_ADDED = 1 << 3;
+
+	signed char &Internal::allrpr_mark (int lit, allrpr_proof_clauses &pcs) {
+		assert (internal->vlit (lit) < pcs.marks.size ());
+		return pcs.marks[internal->vlit (lit)];
+	}
+
+	inline bool Internal::is_true (int lit, allrpr_proof_clauses &pcs) {
+	 return allrpr_mark (lit, pcs) & TRUE; 
+	}
+
+	inline bool Internal::is_false (int lit, allrpr_proof_clauses &pcs) {
+	 return allrpr_mark (-lit, pcs) & TRUE; 
+	}
+
+	inline bool Internal::is_target (int lit, allrpr_proof_clauses &pcs) {
+	 return allrpr_mark (lit, pcs) & TARGET; 
+	}
+
+	inline bool Internal::is_worked (int lit, allrpr_proof_clauses &pcs) {
+	 return allrpr_mark (lit, pcs) & WORKED; 
+	}
+
+	inline bool Internal::is_reason_added (int lit, allrpr_proof_clauses &pcs) {
+		return allrpr_mark (lit, pcs) & REASON_ADDED; 
+	}
+
+	inline void Internal::set_true (int lit, allrpr_proof_clauses &pcs)   {
+	 allrpr_mark (lit, pcs) |= TRUE; 
+	}
+
+	inline void Internal::set_false (int lit, allrpr_proof_clauses &pcs)   {
+	 allrpr_mark (lit, pcs) &= ~TRUE; 
+	}
+
+	inline void Internal::set_target (int lit, allrpr_proof_clauses &pcs) {
+	 allrpr_mark (lit, pcs) |= TARGET; 
+	}
+
+	inline void Internal::unset_target (int lit, allrpr_proof_clauses &pcs) {
+		allrpr_mark (lit, pcs) &= ~TARGET;
+	}
+
+	inline void Internal::set_worked (int lit, allrpr_proof_clauses &pcs) { 
+		allrpr_mark (lit, pcs) |= WORKED; 
+	}
+
+	inline void Internal::set_reason_added (int lit, allrpr_proof_clauses &pcs) {
+	 allrpr_mark (lit, pcs) |= REASON_ADDED; 
+	}
+	// ---------------------------------------------------------------------------
 
 	void Internal::allrpr_init_citten () {
 		assert (!citten);
@@ -113,9 +168,6 @@ extern "C" {
 	#endif
 	}
 	
-
-
-
 } // end extern "C"
 	
 	
@@ -133,79 +185,188 @@ extern "C" {
 		citten_clause_with_id (citten, 0, 1, &unit);
 	}
 
-	// collect all reasons and all possible propagation candidates (from trail)
-	//
-	void Internal::allrpr_collect_all (allrpr_proof_clauses &pcs) {
-		LOG ("ALLRPR COLLECT ALL");
-		START (allrprcollect);
-		assert (conflict);
-		assert (citten);
-		feed_reason (pcs, conflict);
-    	pcs.is_extra.push_back (0);  // TODO: remove later on
-		int64_t added = 1;
+	bool Internal::clause_is_qualified (Clause *c, int &prop_lit, allrpr_proof_clauses &pcs) {
+		LOG (c, "Checking qualification of");
+		assert (!prop_lit);
+		if (c->garbage) {
+			LOG (c, "Not qualified garbage");
+			return false;
+		}
+		if (c == conflict) {
+			LOG (c, "Not qualified conflict");
+			return false;
+		}
 
-		// go backwards through trail
+		// A clause would propagate, if it only non-false literal has the highest
+		// trail position among literals in the clause
+		for (const int &lit : *c) {
+			LOG ("checking lit %d", lit);
+			if (is_false (lit, pcs)) { // literal is falsified and (in the implication graph or implied)
+				LOG ("lit %d falsity implied", lit);
+				LOG ("lit %d marks %d", lit, allrpr_mark (lit, pcs));
+				LOG ("lit %d marks %d", -lit, allrpr_mark (-lit, pcs));
+				continue;
+			}
+			if (prop_lit) {
+				LOG ("Not qualified due to %d being the second non-marked/non-false literal", -lit);
+				return false;
+			}
+			prop_lit = lit; // This may propagate, if it is the only non-false literal
+		}
+		if (!prop_lit) { // c may be completely falsified
+			LOG ("Qualified as possible conflict");
+			return true;
+		}
+		return true;
+	}
+
+	// try to collect all necessary reasons and propagating literals without using the flags
+	void Internal::allrpr_mark_graph (vector<int> &base, allrpr_proof_clauses &pcs) {
+		LOG ("ALLRPR MARK GRAPH V2");
+		START (allrprcollect);
+
+		// mark all conflict clause literals negations as true
+		LOG ("Setting negated conflict clause literals to true");
+		for (const int &lit : *conflict) {
+			set_true (-lit, pcs);
+			base.push_back (-lit);
+		}
+		// mark all learned clause literals negations as target
+		LOG ("Setting negated learend clause literals as target");
+		int work = (int) clause.size ();
+		for (const int &lit : clause) {
+			set_target (-lit, pcs);
+		}
 		const auto &t = &trail;
 		int i = t->size ();	
-		while (i) {
+		while (work != 0) {
 			int lit = (*t)[--i];
+			if (!is_true (lit, pcs)) {
+				LOG ("skipping non-marked literal %d", lit);
+				continue;
+			}
+			if (is_target (lit, pcs)) {
+				LOG ("skipping target literal %d", lit);
+				work--;
+				continue;
+			}
+			Var &v = var (lit);
+			Clause *reason = v.reason;
+			if (!reason)
+				continue;
+			LOG (reason, "looking at %d reason", lit);
+			for (const int &rlit : *reason) {
+				if (rlit == lit) // propagating literal
+					continue;
+				if (is_target (-rlit, pcs) && !is_true (-rlit, pcs)) { // hit a end of the graph
+					LOG ("reached learned clause literal %d", rlit);
+				}
+				if (!is_true (-rlit, pcs)) {
+					LOG ("marking %d as true", -rlit);
+					set_true (-rlit, pcs); // falsified literal, propagating lit
+					base.push_back (-rlit);			
+				}
+			}
+		}
+		LOG (base, "base:");
+		STOP (allrprcollect);
+	}
+
+
+	void Internal::allrpr_collect_more (vector<int> &base, allrpr_proof_clauses &pcs) {
+		LOG ("ALLRPR COLLECT MORE");
+		START (allrprcollect);
+		vector<int> work;
+		int64_t collected = 0;
+		// init work stack in order of assumption
+
+		LOG (conflict, "Adding conflict");
+		feed_reason (pcs, conflict);
+		pcs.is_extra.push_back (0);  // TODO: remove later on
+		collected++;
+		// add base reasons and queue them up for work
+		LOG (base, "Adding base reasons for");
+		for (const int &lit : base) {
 			Var &v = var (lit);
 			if (!v.level) {
+				collected++;
 				feed_unit_reason (lit);
+				set_reason_added (lit, pcs);
+			} else if (v.reason) {
+				collected++;
+				feed_reason (pcs, v.reason);
+				set_reason_added (lit, pcs);
+				pcs.is_extra.push_back (0);
+			} else {
+				LOG ("No reason for %d", lit);
 			}
-			Clause *reason = v.reason;
-			// && !reason->garbage <-- this also leads to problems...
-			if (reason && reason->size) { // weird situations where mock propagator adds size 0 clauses
-				added++;
-				feed_reason (pcs, reason);
-				pcs.is_extra.push_back (0); // TODO: remove later on
-			}
+			work.push_back (lit);
+			set_worked (lit, pcs);
+		}
 
-			LOG ("Checking watch list of %d", lit);
-			Watches &ws = watches (lit);
+		LOG (work, "initialized work to");
+		// Now start at the end of work and look for further propagations given
+		// the valuations by the marks. If a literal could propagate, we push it 
+		// onto work and mark it.
+		while (!work.empty ()) {
+			int lit = work.back ();
+			assert (is_worked (lit, pcs));
+			work.pop_back ();
+			LOG ("working on %d", lit);
+
+			LOG ("Checking watch list of %d", -lit);
+			Watches &ws = watches (-lit);
 			const const_watch_iterator eow = ws.end ();
 			watch_iterator j = ws.begin ();
 
 			while (j != eow) {
 				const Watch w = *j++;
-				LOG (w.clause, "Checking");
-				if (w.clause->garbage) {
-					LOG (w.clause, "Skipping garbage");
-					continue;
-				}
-				if (w.clause == reason || w.clause == conflict) {
-					LOG (w.clause, "Skipping %s", w.clause == reason ? "reason" : "conflict");
-					continue;
-				}
-				if (val (w.blit) > 0 && w.blit != lit) {
-					LOG (w.clause, "Skipping doubly satisfied");
-					continue;
-				}
-				// check clause for being a propagation candidate.
-				// i.e. all literals false except for lit, which is satisfied
-				bool relevant = true;
-				for (const auto &l : *w.clause) {
-					if (val (l) < 0)
+				int prop_lit = 0;
+				if (clause_is_qualified (w.clause, prop_lit, pcs)) {
+					if (!prop_lit) {
+						LOG (w.clause, "Adding possibly conflict");
+						feed_reason (pcs, w.clause);
+						pcs.is_extra.push_back (1);
+						collected++;
 						continue;
-					if (l != lit) {
-						LOG ("Skipping due to unfalsified literal %d != %d", l, lit);
-						relevant = false;
-						break;
-					}
-				}
-				if (relevant) {
-					LOG (w.clause, "possibly relevant");
-					added++;
-					feed_reason (pcs, w.clause);
-					pcs.is_extra.push_back (1);  // TODO: remove later on
+					} 
+					else {
+						Var &vnf = var (prop_lit);
+						if (vnf.reason != w.clause) {
+							LOG (w.clause, "Adding possibly propagating %d", prop_lit);
+							feed_reason (pcs, w.clause);
+							pcs.is_extra.push_back (1);
+							collected++;
+						} 
+						else if (!is_reason_added (prop_lit, pcs)) {
+							LOG (w.clause, "Adding reason for possibly propagating %d", prop_lit);
+							set_reason_added (prop_lit, pcs);
+						}
+						else {
+							LOG (vnf.reason, "Skipping %d reason", prop_lit);
+						}
+						// Mark and push to work, if wasn't work already
+						if (!is_true (prop_lit, pcs)) {
+							LOG ("%d is not set to true. setting true flag...", prop_lit);
+							set_true (prop_lit, pcs);
+						}
+						// if the watch list of the literal wasn't yet traversed queue it up for work
+						if (!is_worked (prop_lit, pcs)) {
+							LOG ("%d wasn't in work yet. pushing to work...", prop_lit);
+							work.push_back (prop_lit);
+							set_worked (prop_lit, pcs);
+						}
+					} 
 				}
 			}
 		}
-		stats.allrpr.added += added;
+		LOG ("ALLRPR COLLECT MORE FINISHED COLLECTING %lld clauses", collected);
+		//LOG (ids, "collected: ");
+		stats.allrpr.added += collected;
 		STOP (allrprcollect);
-		LOG ("ALLRPR COLLECT ALL added %lld clauses", added);
 	}
 
+	
 	void Internal::allrpr_build_lrat (allrpr_proof_clauses &pcs) {
 		LOG ("ALLRPR BUILD LRAT");
 		START (allrprlrat);

@@ -1260,10 +1260,6 @@ void Internal::analyze () {
     if (opts.allrprfiltershrink) {
       stats.allrpr.kittenaftershrink++;
     }
-    allrpr_pcs.internal = this;
-    allrpr_init_citten ();
-
-    allrpr_collect_all (allrpr_pcs);
 
     if (opts.allrprorder) // sort clause by increasing trail position
       minimize_sort_clause ();
@@ -1271,6 +1267,14 @@ void Internal::analyze () {
       minimize_sort_clause ();
       reverse (clause.begin (), clause.end ());
     }
+
+    allrpr_pcs.marks.resize (2 * internal->max_var + 3);
+    allrpr_pcs.internal = this;
+    allrpr_init_citten ();
+
+    vector<int> base;
+    allrpr_mark_graph (base, allrpr_pcs);
+    allrpr_collect_more (base, allrpr_pcs);
 
     // Try to minimize with kitten
     allrpr_mini_pcs mini_pcs;
