@@ -504,11 +504,14 @@ extern "C" {
 			assert (is_worked (lit, pcs));
 			work.pop_back ();
 			LOG ("working on %d", lit);
-			if (is_in_kitten (lit, pcs)) {
-				LOG ("%d watch list clauses are already in kitten", -lit);
-				continue;
+
+			if (opts.allrprskipearly) {
+				if (is_in_kitten (lit, pcs)) {
+					LOG ("%d watch list clauses are already in kitten", -lit);
+					continue;
+				}
+				set_in_kitten (lit, pcs);
 			}
-			set_in_kitten (lit, pcs);
 				
 			LOG ("Checking watch list of %d", -lit);
 			Watches &ws = watches (-lit);
@@ -578,6 +581,7 @@ extern "C" {
 		stats.allrpr.added += basecls + extracls;
 		stats.allrpr.baseadded += basecls;
 		stats.allrpr.extradded += extracls;
+		stats.allrpr.baseskipped += wouldbase;
 		if (opts.allrprreport) {
 			printf ("KIT added baseclauses %d\n", basecls);
 			printf ("KIT skipped baseclauses %d\n", wouldbase);
@@ -605,7 +609,6 @@ extern "C" {
 		}
 		STOP (allrprcollect);
 	}
-
 
 // ----------------------------------------------------------------------------//
 	// Collect extra clauses starting from base. Filter clauses that contain too
@@ -673,12 +676,15 @@ extern "C" {
 				++idx;
 				assert (is_worked (lit, pcs));
 				LOG ("working on %d", lit);
-				if (is_in_kitten (lit, pcs)) {
+				
+				if (opts.allrprskipearly) {
+					if (is_in_kitten (lit, pcs)) {
 					LOG ("%d watch list clauses probably are already in kitten", -lit);
 					continue;
+					}
+					set_in_kitten (lit, pcs);	
 				}
-				set_in_kitten (lit, pcs);
-					
+				
 				LOG ("Checking watch list of %d", -lit);
 				Watches &ws = watches (-lit);
 				const const_watch_iterator eow = ws.end ();
