@@ -27,7 +27,7 @@ namespace CaDiCaL {
 	};
 
 
-	// Test for retry
+	// For Version without LRAT
 	struct allrpr_mini_pcs {
 		Internal *internal;
 		uint64_t cadi_core_clauses = 0;

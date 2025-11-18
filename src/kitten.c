@@ -1738,6 +1738,13 @@ void kitten_shuffle_assumptions (kitten *kitten) {
   LOG ("shuffling assumptions");
   shuffle_unsigned_stack (kitten, &kitten->assumptions);
 }
+
+void kitten_shuffle_assumptions_except_first (kitten *kitten) {
+  LOG ("shuffling assumptions except for first");
+  const size_t size = SIZE_STACK (kitten->assumptions) - 1;
+  unsigned *a = BEGIN_STACK (kitten->assumptions) + 1;
+  shuffle_unsigned_array (kitten, size, a);
+}
 // -----------------------------------------------------------------------------
 
 void kitten_assume (kitten *kitten, unsigned elit) {

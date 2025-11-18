@@ -817,7 +817,7 @@ struct Internal {
   void allrpr_kitten_catch_rat (int uip, allrpr_mini_pcs &mini_pcs); // LRAT chain from kitten
   void allrpr_attempt_minimize_k_times (
     int &uip, allrpr_mini_pcs &mini_pcs, vector<int> &final, int &mini_again);
-  void allrpr_kitten_attempt_minimize (allrpr_mini_pcs &mini_pcs, const int attempt, const bool shuffle);
+  void allrpr_kitten_attempt_minimize (allrpr_mini_pcs &mini_pcs, const int attempt, const int &uip, const bool shuffle);
   void allrpr_update_extra_stats (allrpr_proof_clauses &pcs);
   void allrpr_update_glue (int uip, int& glue);
 

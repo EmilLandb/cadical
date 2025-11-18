@@ -36,6 +36,7 @@ OPTION( allrprreverse,     0,  0,  1,0,0,1, "sort clause in descending trail ord
 OPTION( allrprshrinkorder, 0,  0,  1,0,0,1, "sort clause by descending trail order with slice uips in the back") \
 OPTION( allrprsizethresh,1e3,  0,1e3,0,0,1, "size threshold for trying kitten minimization") \
 OPTION( allrprskipearly,   1,  0,  1,0,0,1, "Skip watches that were scanned since last reset") \
+OPTION( allrpruipfirst,    0,  0,  1,0,0,1, "Always assume the UIP first") \
 OPTION( arena,             1,  0,  1,0,0,1, "allocate clauses in arena") \
 OPTION( arenacompact,      1,  0,  1,0,0,1, "keep clauses compact") \
 OPTION( arenasort,         1,  0,  1,0,0,1, "sort clauses in arena") \

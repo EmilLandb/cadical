@@ -543,7 +543,7 @@ extern "C" {
 
 				if (clause_is_qualified (w.clause, prop_lit, pcs)) {
 					if (extracls >= opts.allrpraddthresh) {
-						LOG ("Reached addition threshold of %lld", opts.allrpraddthresh);
+						LOG ("Reached addition threshold of %d", opts.allrpraddthresh);
 						break;
 					}
 					if (!prop_lit) {
@@ -576,7 +576,7 @@ extern "C" {
 				}
 			}
 		}
-		LOG ("ALLRPR COLLECT MORE FINISHED COLLECTING %lld clauses", basecls + extracls);
+		LOG ("ALLRPR COLLECT MORE FINISHED COLLECTING %d clauses", basecls + extracls);
 		LOG ("pcs.reasons (size: %zu):", pcs.reasons.size ());
 		stats.allrpr.added += basecls + extracls;
 		stats.allrpr.baseadded += basecls;
@@ -714,7 +714,7 @@ extern "C" {
 
 					if (clause_is_qualified (w.clause, prop_lit, pcs)) {
 						if (extracls >= opts.allrpraddthresh) {
-							LOG ("Reached addition threshold of %lld", opts.allrpraddthresh);
+							LOG ("Reached addition threshold of %d", opts.allrpraddthresh);
 							break;
 						}
 						if (!prop_lit) {
@@ -749,7 +749,7 @@ extern "C" {
 			}
 		}
 		
-		LOG ("ALLRPR COLLECT MORE FINISHED COLLECTING %lld clauses", basecls + extracls);
+		LOG ("ALLRPR COLLECT MORE FINISHED COLLECTING %d clauses", basecls + extracls);
 		LOG ("pcs.reasons (size: %zu):", pcs.reasons.size ());
 		stats.allrpr.added += basecls + extracls;
 		stats.allrpr.baseadded += basecls;
@@ -884,12 +884,20 @@ extern "C" {
 		// conflict clause.
 		// if !uip then the empty clause was already derived.
 		if (uip) { 
-			LOG (clause, "LEARNED CLAUSE: ");
-			for (const auto &lit: clause) {
-      	LOG ("KITTEN ASSUME %d", -lit);
-      	kitten_assume_signed (citten, -lit);
-    	}
-    	LOG ("Solving kitten...");
+			LOG ("Assuming UIP literal %d", uip);
+			kitten_assume_signed (citten, uip);
+			for (const auto &lit : clause) {
+				if (lit == -uip)
+					continue;
+			LOG ("Assuming %d", -lit);
+			kitten_assume_signed (citten, -lit);	
+			}	
+			if (opts.allrpruipfirst) {
+				kitten_shuffle_assumptions_except_first (citten);
+			} else {
+				kitten_shuffle_assumptions (citten);
+			}
+			
 			kitten_solve (citten);
 			// Now compute the clausal core and trace it. This will provide resolution
 			// chains, which can be used for deriving an LRAT proof.
@@ -909,7 +917,7 @@ extern "C" {
 	// Lightweight version of allrpr_kitten_catch_rat. Used for the first k tries
 	// at minimization, before finally the LRAT chain is also extracted
 	//  
-	void Internal::allrpr_kitten_attempt_minimize (allrpr_mini_pcs &mini_pcs, const int attempt, const bool shuffle) {
+	void Internal::allrpr_kitten_attempt_minimize (allrpr_mini_pcs &mini_pcs, const int attempt, const int &uip, const bool shuffle) {
 		START (allrprsolve);
 		assert (citten);
 
@@ -918,12 +926,21 @@ extern "C" {
 		#endif
 		LOG (clause, "Kitten Minimization Attempt %d on", attempt);
 
-		for (const auto &lit: clause) {
+		LOG ("Assuming UIP literal %d", uip);
+		kitten_assume_signed (citten, uip);
+		for (const auto &lit : clause) {
+			if (lit == -uip)
+				continue;
 			LOG ("Assuming %d", -lit);
-			kitten_assume_signed (citten, -lit);
+			kitten_assume_signed (citten, -lit);	
+		}	
+		if (shuffle) {
+			if (opts.allrpruipfirst) {
+				kitten_shuffle_assumptions_except_first (citten);
+			} else {
+				kitten_shuffle_assumptions (citten);
+			}
 		}
-		if (shuffle)
-			kitten_shuffle_assumptions (citten);
 		kitten_solve (citten);
 		kitten_compute_clausal_core (citten, nullptr);
 		kitten_traverse_core_clauses (citten, &mini_pcs, get_final_from_core);
@@ -946,7 +963,7 @@ extern "C" {
       	printf ("\n");	
       }
 
-      allrpr_kitten_attempt_minimize (mini_pcs, i, shuffle);
+      allrpr_kitten_attempt_minimize (mini_pcs, i, uip, shuffle);
       LOG (mini_pcs.final_clause, "clause after attempt %i:", i);
       if (mini_pcs.final_clause.size () < clause.size ()) { // successful further further
         mini_again++;

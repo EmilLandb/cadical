@@ -1278,8 +1278,8 @@ void Internal::analyze () {
       }
 
       #ifdef LOGGING
-      //if (opts.log)
-      //  kitten_set_logging (citten);
+      if (opts.log)
+        kitten_set_logging (citten);
       #endif
 
       const int post_shrink_size = (int) clause.size ();
