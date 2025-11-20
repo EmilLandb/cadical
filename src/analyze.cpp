@@ -1242,7 +1242,7 @@ void Internal::analyze () {
     printf ("KIT lim.keptglue: %d\n", lim.keptglue);
     printf ("KIT lim.keptsize: %d\n", lim.keptsize);
   } 
-  if (allrpr_try_minimize (glue, size, old_size)) { // Finalize LRAT chain
+  if (allrpr_try_minimize (glue, size, old_size) && size > 1) { // Finalize LRAT chain
     LOG ("Learned clause has qualified for a further minimization attempt");
     allrpr_check_kitten_and_pcs ();
     assert (citten);
@@ -1287,24 +1287,26 @@ void Internal::analyze () {
       // Try to minimize with kitten (including retries)
       allrpr_mini_pcs mini_pcs;
       mini_pcs.internal = this;
+      mini_pcs.final_clause = clause;
       vector<int> &final = mini_pcs.final_clause;
-
+      
       int minimized_again = -1; // first minimization isn't accounted for here
       // attempt minimization iteratively k times without extracting the core
       allrpr_attempt_minimize_k_times (uip, mini_pcs, final, minimized_again);
+      const int after_k_times_size = (int) final.size ();
       // now finally with extracting the core.
       allrpr_kitten_catch_rat (uip, mini_pcs);
     
       // Find out whether further minimization was achieved
-      vector<int> &klause = final;
-      int new_size = (int) klause.size ();
+      //vector<int> &klause = final;
+      int new_size = (int) final.size ();
       if (!uip) {
         new_size = 0;
-        klause.clear ();
+        final.clear ();
       }
       
       // successful further minimization in last kitten call
-      if (new_size < (int) clause.size ()) 
+      if (new_size < after_k_times_size) 
         minimized_again++;
 
       // minimized multiple times due to retries
@@ -1328,7 +1330,7 @@ void Internal::analyze () {
         stats.allrpr.sminimized += post_shrink_size - new_size;
         stats.allrpr.slearnedlits += (int64_t) post_shrink_size; 
 
-        clause = std::move(klause);
+        clause.swap (final);
         LOG (clause, "Further minimization to");
 
         // uip might have changed
@@ -1359,7 +1361,7 @@ void Internal::analyze () {
     if (opts.allrprreport)
       printf ("\n");
   } 
-
+  
   START (analyze);
   
   // Update decision heuristics.

@@ -886,7 +886,8 @@ extern "C" {
 		if (uip) { 
 			LOG ("Assuming UIP literal %d", uip);
 			kitten_assume_signed (citten, uip);
-			for (const auto &lit : clause) {
+			vector<int> &final = mini_pcs.final_clause;
+			for (const auto &lit : final) {
 				if (lit == -uip)
 					continue;
 			LOG ("Assuming %d", -lit);
@@ -924,11 +925,14 @@ extern "C" {
 		#ifndef LOGGING
 		(void) attempt;
 		#endif
-		LOG (clause, "Kitten Minimization Attempt %d on", attempt);
+
+		vector<int> &final = mini_pcs.final_clause;
+
+		LOG (final, "Kitten Minimization Attempt %d on", attempt);
 
 		LOG ("Assuming UIP literal %d", uip);
 		kitten_assume_signed (citten, uip);
-		for (const auto &lit : clause) {
+		for (const int &lit : final) {
 			if (lit == -uip)
 				continue;
 			LOG ("Assuming %d", -lit);
@@ -951,21 +955,26 @@ extern "C" {
 	// attempt k rounds of minimization
 	void Internal::allrpr_attempt_minimize_k_times (
 		int &uip, allrpr_mini_pcs &mini_pcs, vector<int> &final, int &mini_again) {
+		
 		bool shuffle = true;
+
 		for (int i = 0; i < opts.allrprretries; i++) {
-      if (clause.size () == 0)
+      if (final.empty ())
         break;
       if (opts.allrprreport) {
-      	printf ("clause: ");
-      	for (const int &lit : clause) {
+      	printf ("attempt %d final: ", i);
+      	for (const int &lit : final) {
       		printf ("%d ", lit);
       	}
       	printf ("\n");	
       }
 
+      size_t old_size = final.size ();
+
       allrpr_kitten_attempt_minimize (mini_pcs, i, uip, shuffle);
+
       LOG (mini_pcs.final_clause, "clause after attempt %i:", i);
-      if (mini_pcs.final_clause.size () < clause.size ()) { // successful further further
+      if (mini_pcs.final_clause.size () < old_size) { // successful further further
         mini_again++;
         LOG (mini_pcs.final_clause, "%d minimized %s to", mini_again, mini_again > 0 ? "again" : "for the first time");
         if (opts.allrprreport) {
@@ -973,21 +982,13 @@ extern "C" {
         	printf ("KIT final size: %zu\n", mini_pcs.final_clause.size ());
         }
       }
-      if (!final.empty ()) {
-      	const int old_size = (int) clause.size ();
-      	clause = mini_pcs.final_clause;
-      	if (opts.allrprreorder && old_size > (int) final.size ()) {
-      		LOG ("Reorder clause...");
-      		minimize_sort_clause ();
-      		reverse (clause.begin (), clause.end ());
-      		shuffle = false;
-      	} else 
-      		shuffle = true;
+
+      if (mini_pcs.final_clause.empty	()) {
+      	uip = 0;
+      	break;
       }
-      else { // UNSAT, derived empty clause. allrpr_kitten_catch_rat will now just retrace core
-        uip = 0;
-        break;
-      }
+
+      shuffle = true;
     }
 	}
 
