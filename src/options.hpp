@@ -23,6 +23,7 @@
 \
 OPTION( allrpraddthresh, 2e3,  0,2e9,0,0,1, "limit on allowed added extra clauses in allrpr_collect_more") \
 OPTION( allrprbasethresh,1e3,  0,2e9,0,0,1, "limit on allowed base reasons for trying allrpr strengthening") \
+OPTION( allrprcond,        1,  0,  1,0,0,1, "Likely to be kept filter for attempting minimization") \
 OPTION( allrprdist,        0,  0,1e2,0,0,1, "limit on allowed extra clause non base literal count") \
 OPTION( allrprextmaxsize,  4,  0,2e9,0,0,1, "limit on allowed exra reason size") \
 OPTION( allrprextra,       1,  0,  1,0,0,1, "collect extra clauses") \

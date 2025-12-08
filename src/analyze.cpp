@@ -1242,7 +1242,7 @@ void Internal::analyze () {
     printf ("KIT lim.keptglue: %d\n", lim.keptglue);
     printf ("KIT lim.keptsize: %d\n", lim.keptsize);
   } 
-  if (allrpr_try_minimize (glue, size, old_size) && size > 1) { // Finalize LRAT chain
+  if ((!opts.allrprcond || allrpr_try_minimize (glue, size, old_size)) && size > 1) { // Finalize LRAT chain
     LOG ("Learned clause has qualified for a further minimization attempt");
     allrpr_check_kitten_and_pcs ();
     assert (citten);
