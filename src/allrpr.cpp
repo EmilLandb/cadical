@@ -392,7 +392,8 @@ extern "C" {
 		for (const int &lit : *conflict) {
 			LOG ("setting true %d", -lit);
 			set_true (-lit, pcs);
-			set_base (lit, pcs); // TODO: Check if removable or useful
+			if (opts.allrprextrabase)
+				set_base (lit, pcs); // TODO: Check if removable or useful
 			set_base (-lit, pcs); 
 			base.push_back (-lit);
 		}
@@ -403,7 +404,8 @@ extern "C" {
 			LOG ("setting target %d", -lit);
 			set_target (-lit, pcs);
 			set_base (-lit, pcs);
-			set_base (lit, pcs); // TODO: Check if removable or useful
+			if (opts.allrprextrabase)
+				set_base (lit, pcs); // TODO: Check if removable or useful
 		}
 		const auto &t = &trail;
 		int i = t->size ();	
@@ -433,7 +435,8 @@ extern "C" {
 					LOG ("marking %d as true", -rlit);
 					set_true (-rlit, pcs); // falsified literal, propagating lit
 					set_base (-rlit, pcs);
-					set_base (rlit, pcs); // TODO: Check if removable or useful
+					if (opts.allrprextrabase)
+						set_base (rlit, pcs); // TODO: Check if removable or useful
 					base.push_back (-rlit);			
 				}
 			}
@@ -499,6 +502,7 @@ extern "C" {
 		// Now start at the end of work and look for further propagations given
 		// the valuations by the marks. If a literal could propagate, we push it 
 		// onto work and mark it.
+
 		while (!work.empty () && extracls < opts.allrpraddthresh) {
 			int lit = work.back ();
 			assert (is_worked (lit, pcs));
@@ -520,63 +524,32 @@ extern "C" {
 
 			while (j != eow) {
 				const Watch w = *j++;
-				int prop_lit = 0;
 				if (w.size > 4) // TODO: remove after tests
 					continue;
 				if (w.clause->added) {
 					LOG (w.clause, "Skipping already added clause");
 					continue;
 				}
-				// Filter clauses whose dist is too high -------------------------------
+				// Filter clauses whose dist is too high
 				int nb_in_c = 0;
 				for (const int &l : *w.clause) {
 					if (!is_base (l, pcs))
 						nb_in_c++;
 				}
-				if (nb_in_c > opts.allrprdist) {
+				if (nb_in_c) { // dist = 0
 					LOG (w.clause, "skipping too high dist");
 					w.clause->added = true; // mark added so it is skipped in the future
 					unmarkcls.push_back (w.clause);
 					continue;
 				}
-				// ---------------------------------------------------------------------
-
-				if (clause_is_qualified (w.clause, prop_lit, pcs)) {
-					if (extracls >= opts.allrpraddthresh) {
-						LOG ("Reached addition threshold of %d", opts.allrpraddthresh);
-						break;
-					}
-					if (!prop_lit) {
-						LOG (w.clause, "Adding possibly conflict");
-						feed_reason (pcs, w.clause);
-						pcs.is_extra.push_back (1);
-						extracls++;
-						w.clause->added = true;
-						continue;
-					} 
-					else {
-						LOG (w.clause, "Adding possibly propagating %d", prop_lit);
-						feed_reason (pcs, w.clause);
-						pcs.is_extra.push_back (1);
-						extracls++;
-						w.clause->added = true;
-						
-						// Mark and push to work, if wasn't work already
-						if (!is_true (prop_lit, pcs)) {
-							LOG ("%d is not set to true. setting true flag...", prop_lit);
-							set_true (prop_lit, pcs);
-						}
-						// if the watch list of the literal wasn't yet traversed queue it up for work
-						if (!is_in_kitten (prop_lit, pcs) && !is_worked (prop_lit, pcs)) {
-							LOG ("%d wasn't in work yet. pushing to work...", prop_lit);
-							work.push_back (prop_lit);
-							set_worked (prop_lit, pcs);
-						}
-					} 
-				}
+				feed_reason (pcs, w.clause);
+				pcs.is_extra.push_back (1);
+				extracls++;
+				w.clause->added = true;
 			}
 		}
-		LOG ("ALLRPR COLLECT MORE FINISHED COLLECTING %d clauses", basecls + extracls);
+
+		LOG ("ALLRPR COLLECT MORE FINISHED COLLECTING %d clauses (%d base, %d extra)", basecls + extracls, basecls, extracls);
 		LOG ("pcs.reasons (size: %zu):", pcs.reasons.size ());
 		stats.allrpr.added += basecls + extracls;
 		stats.allrpr.baseadded += basecls;
@@ -957,8 +930,8 @@ extern "C" {
 		int &uip, allrpr_mini_pcs &mini_pcs, vector<int> &final, int &mini_again) {
 		
 		bool shuffle = true;
-
-		for (int i = 0; i < opts.allrprretries; i++) {
+		int again = opts.allrprretries;
+		for (int i = 0; i < again; i++) {
       if (final.empty ())
         break;
       if (opts.allrprreport) {
@@ -975,6 +948,7 @@ extern "C" {
 
       LOG (mini_pcs.final_clause, "clause after attempt %i:", i);
       if (mini_pcs.final_clause.size () < old_size) { // successful further further
+        again++;
         mini_again++;
         LOG (mini_pcs.final_clause, "%d minimized %s to", mini_again, mini_again > 0 ? "again" : "for the first time");
         if (opts.allrprreport) {
@@ -982,7 +956,6 @@ extern "C" {
         	printf ("KIT final size: %zu\n", mini_pcs.final_clause.size ());
         }
       }
-
       if (mini_pcs.final_clause.empty	()) {
       	uip = 0;
       	break;

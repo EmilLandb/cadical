@@ -27,6 +27,7 @@ OPTION( allrprcond,        1,  0,  1,0,0,1, "Likely to be kept filter for attemp
 OPTION( allrprdist,        0,  0,1e2,0,0,1, "limit on allowed extra clause non base literal count") \
 OPTION( allrprextmaxsize,  4,  0,2e9,0,0,1, "limit on allowed exra reason size") \
 OPTION( allrprextra,       1,  0,  1,0,0,1, "collect extra clauses") \
+OPTION( allrprextrabase,   0,  0,  1,0,0,1, "mark some extra literals as base") \
 OPTION( allrprfiltershrink,0,  0,  1,0,0,1, "only try further minimization if shrink was successful") \
 OPTION( allrprgluethresh,  0,  0,  1,0,0,1, "glue threshold for trying kitten minimization (predicate likely_to_be_kept)") \
 OPTION( allrprreorder,     0,  0,  1,0,0,0, "order after every minimizing retry") \
