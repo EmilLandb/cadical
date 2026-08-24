@@ -1789,7 +1789,7 @@ struct WitnessWriter : public WitnessIterator {
     return true;
   }
 };
-
+// TODO: this needs updating to work with new reconstruction structure.
 const char *Solver::write_extension (const char *path) {
   LOG_API_CALL_BEGIN ("write_extension", path);
   REQUIRE_VALID_STATE ();

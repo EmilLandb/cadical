@@ -383,6 +383,7 @@ bool Internal::cover_clause (Clause *c, Coveror &coveror) {
       LOG (c, "covered tautological");
       assert (clause.empty ());
       LOG (coveror.extend, "extension = ");
+      int clause_ewit = 0;
       for (const auto &other : coveror.extend) {
         if (!prev) {
           // are we finishing a clause?
@@ -396,7 +397,7 @@ bool Internal::cover_clause (Clause *c, Coveror &coveror) {
                 --j;
                 LOG ("adding lit %d not needed for ATA", lit);
                 clause.push_back (lit);
-                external->push_clause_literal_on_extension_stack (lit);
+                external->push_clause_literal_on_extension_stack (clause_ewit, lit); 
               }
             }
           }
@@ -408,17 +409,19 @@ bool Internal::cover_clause (Clause *c, Coveror &coveror) {
             proof->weaken_plus (last_id, clause);
             lrat_chain.clear ();
           }
+          clause_ewit = externalize (other); // Now update the witness after the previous clause is finished
           last_id = ++clause_id;
-          external->push_zero_on_extension_stack ();
-          external->push_witness_literal_on_extension_stack (other);
-          external->push_zero_on_extension_stack ();
-          external->push_id_on_extension_stack (last_id);
-          external->push_zero_on_extension_stack ();
+          external->push_zero_on_extension_stack (clause_ewit);
+          external->witness_order.push_back (clause_ewit);
+          //external->push_witness_literal_on_extension_stack (other);
+          //external->push_zero_on_extension_stack (externalize (other));
+          external->push_id_on_extension_stack (clause_ewit, last_id);
+          external->push_zero_on_extension_stack (clause_ewit);
           clause.clear ();
           already_pushed = true;
         }
         if (other) {
-          external->push_clause_literal_on_extension_stack (other);
+          external->push_clause_literal_on_extension_stack (clause_ewit, other);
           clause.push_back (other);
           LOG (clause, "current clause is");
         }
@@ -435,7 +438,7 @@ bool Internal::cover_clause (Clause *c, Coveror &coveror) {
             --j;
             LOG ("adding lit %d not needed for ATA", lit);
             clause.push_back (lit);
-            external->push_clause_literal_on_extension_stack (lit);
+            external->push_clause_literal_on_extension_stack (clause_ewit, lit);
           }
         }
         if (lrat)

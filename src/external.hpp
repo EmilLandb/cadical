@@ -91,6 +91,10 @@ struct External {
   bool concluded;
   vector<int> extension; // Solution reconstruction extension stack.
 
+  vector<vector<int>> witness_stacks; // Reconstruction stacks for each witness.
+  vector<int> witness_order; // For restoring the order of clauses in extend.
+  vector<int> tainted_stack; // For propagating tainting in restore.
+
   vector<bool> witness; // Literal witness on extension stack.
   vector<bool> tainted; // Literal tainted in adding literals.
 
@@ -188,23 +192,29 @@ struct External {
   /*----------------------------------------------------------------------*/
 
   // The following five functions push individual literals or clauses on the
-  // extension stack.  They all take internal literals as argument, and map
-  // them back to external literals first, before pushing them on the stack.
+  // extension stack indexed by ewit. They all take internal literals as argument, 
+  // and map them back to external literals first, before pushing them on the 
+  // stack.
 
-  void push_zero_on_extension_stack ();
+  void push_zero_on_extension_stack (int ewit);
 
+  // TODO: update descriptions
   // Our general version of extension stacks always pushes a set of witness
   // literals (for variable elimination the literal of the eliminated
   // literal and for blocked clauses the blocking literal) followed by all
   // the clause literals starting with and separated by zero.
   //
-  void push_clause_literal_on_extension_stack (int ilit);
-  void push_witness_literal_on_extension_stack (int ilit);
+  void push_clause_literal_on_extension_stack (int ewit, int ilit);
+  //void push_witness_literal_on_extension_stack (int ilit);
 
-  void push_clause_on_extension_stack (Clause *);
-  void push_clause_on_extension_stack (Clause *, int witness);
-  void push_binary_clause_on_extension_stack (int64_t id, int witness,
+  //void push_clause_on_extension_stack (Clause *);
+  void push_clause_on_extension_stack (int wit, Clause *);
+  void push_binary_clause_on_extension_stack (int64_t id, int wit,
                                               int other);
+
+  // Clauses that have multiple witnesses (witness cubes) need to be referenced
+  // on all relevant witness stacks. 
+  void push_shared_clause_on_extension_stack (vector<int> wits, Clause *c);
 
   // The main 'extend' function which extends an internal assignment to an
   // external assignment using the extension stack (and sets 'extended').
@@ -247,14 +257,40 @@ struct External {
   void push_external_clause_and_witness_on_extension_stack (
       const vector<int> &clause, const vector<int> &witness, int64_t id);
 
-  void push_id_on_extension_stack (int64_t id);
+  void push_id_on_extension_stack (int ewit, int64_t id);
+
+  struct RestoreStats {
+    int64_t weakened, satisfied, restored, removed;
+  };
+
+  // TODO: this only works with flexible array members yet.
+  struct SharedClause {
+    int64_t id;
+    int backlinks; // number of dummy clauses that are still connected
+    bool force_witness = false; // assign witness unconditionally
+    bool stale = false; // ignore (and freed in restore if at some point links are 0)
+    int elits[]; // zero terminated // TODO: maybe just add a size field instead?
+  };
 
   // Restore a clause, which was pushed on the extension stack.
   void restore_clause (const vector<int>::const_iterator &begin,
                        const vector<int>::const_iterator &end,
                        const int64_t id);
 
-  void restore_clauses ();
+  // Restore a shared clause, which has references on the witness stacks
+  void restore_shared_clause (SharedClause *sc);
+
+  // Restore clauses on witness_stack[uwit]
+  void restore_clauses (unsigned uwit, RestoreStats &clauses);
+
+  // Propagate tainting end restore tainted clauses
+  void propagate_tainting (RestoreStats &clauses);
+
+  // Restore all clauses on all witness stacks
+  void restore_all (RestoreStats &clauses);
+
+  // Entry to restore
+  void restore ();
 
   bool is_witness (int);
   /*----------------------------------------------------------------------*/
