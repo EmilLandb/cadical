@@ -194,6 +194,7 @@ int External::internalize (int elit, bool extension) {
       assert (!internal->opts.checkfrozen);
       LOG ("marking tainted %d", elit);
       mark (tainted, elit);
+      tainted_stack.push_back (elit);
     }
   } else
     ilit = 0;

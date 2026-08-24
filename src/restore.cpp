@@ -79,8 +79,234 @@ void External::restore_clause (const vector<int>::const_iterator &begin,
   internal->stats.restored_clauses++;
 }
 
-/*------------------------------------------------------------------------*/
+// TODO: Rather do one restore_clause (int * begin, int * end, ...)
+// that both can use 
+void External::restore_shared_clause (SharedClause *sc) {
+  LOG ("restoring external shared clause[%" PRId64 "]", sc->id);
+  
+  assert (eclause.empty ());
+  assert (sc->id);
+  assert (sc->stale);
 
+  for (const int *p = sc->elits; *p; ++p) {
+    eclause.push_back (*p);
+    if (internal->proof && internal->lrat) {
+      const auto &elit = *p;
+      unsigned eidx = (elit > 0) + 2u * (unsigned) abs (elit);
+      assert ((size_t) eidx < ext_units.size ());
+      const int64_t id = ext_units[eidx];
+      bool added = ext_flags[abs (elit)];
+      if (id && !added) {
+        ext_flags[abs (elit)] = true;
+        internal->lrat_chain.push_back (id);
+      }
+    }
+    int ilit = internalize (*p);
+    internal->add_original_lit (ilit), internal->stats.restored_literals++;
+  }
+  if (internal->proof && internal->lrat) {
+    for (const auto &elit : eclause) {
+      ext_flags[abs (elit)] = false;
+    }
+  }
+  internal->finish_added_clause_with_id (sc->id, true);
+  eclause.clear ();
+  internal->stats.restored_clauses++;
+}
+
+/*------------------------------------------------------------------------*/
+// Process one witness stack. I.e. restore all clauses that are not flushed.
+void External::restore_clauses (unsigned uwit, RestoreStats &clauses) {
+  vector<int> &stack = witness_stacks[uwit];
+  auto p = stack.begin ();
+  auto end_of_stack = stack.end ();
+  // 0 idu idl 0 l1 l2 ... lk 0 next clause
+  // ^
+  LOG (stack, "witness_stack: ");
+  while (p != end_of_stack) {
+    assert (!*p); // p is on '0' 
+    p++; // now on idu
+    clauses.weakened++;
+    // copy the id of the clause
+    const int64_t id = ((int64_t) (*p) << 32) + (int64_t) *(p + 1);
+    int satisfied = 0;
+    if (id) {
+      LOG ("id is %" PRId64, id);
+      p += 3; // now on the first literal after idu idl 0 
+
+      auto begin = p;
+      // now p is on the first literal of the clause, and we go to the next '0'
+      while (p != end_of_stack && *p) { 
+        if (!satisfied && fixed (*p) > 0)
+          satisfied = *p;
+        ++p;
+      }
+      if (satisfied && !internal->opts.restoreflush) {
+        LOG (begin, p, "forced to not remove %d satisfied",
+             satisfied);
+        satisfied = 0;
+      } 
+
+      if (satisfied) {
+        LOG (begin, p, 
+               "flushing implied %s clause satisfied by %d from extension stack", 
+               id ? "" : "dummy", satisfied);
+          clauses.satisfied++;
+      } else {
+        clauses.restored++;
+        if (id)
+          restore_clause (begin, p, id); // Might taint literals 
+      }
+    } else {
+      LOG ("shared clause detected");
+      // 0 0 0 ptr_u ptr_l
+      //   ^         
+      const uintptr_t ptr = (static_cast<uintptr_t> (*(p + 2)) << 32) | 
+                             static_cast<uint32_t> (*(p + 3));
+      SharedClause *sc = reinterpret_cast<SharedClause*> (ptr);
+      if (!sc->stale) {
+        // check root level satisfaction
+        for (int *p = sc->elits; *p; ++p) {
+          if (fixed (*p) > 0) {
+            satisfied = *p;
+            break;
+          }
+        }
+        // The clause is definitely stale now (restore or flush)
+        sc->stale = true;  
+        // stats and restoring/flushing
+        if (!satisfied) {
+          restore_shared_clause (sc);
+          clauses.restored++;
+        } else if (satisfied && !internal->opts.restoreflush)
+            LOG ("forced to not remove %d satsfied shared clause", satisfied);
+        else {
+          LOG ("flushing implied shared clause satisfied by %d "
+               "with %d active backlinks", satisfied, sc->backlinks);
+          clauses.satisfied++;
+        }
+      } else
+        LOG ("shared clause was already stale.");
+      assert (sc->backlinks > 0);
+      if (--sc->backlinks == 0) { // This was the last dummy clause. Free now.
+        LOG ("Now no dummy clauses connected. Deleting shared clause...");
+        delete[] (char *) sc;
+      }
+      p += 4; // now on the '0' after the dummy clause
+    }
+    // p is now on either on the (dummy) clause-terminating 0, 
+    // or at end_of_stack if this is the final clause
+    clauses.removed++;
+  }
+  stack.clear ();
+}
+
+// Propagate tainted literals and restore all clauses necessary 
+void External::propagate_tainting (RestoreStats &clauses) {
+  while (!tainted_stack.empty ()) {
+    LOG (tainted_stack, "tainted_stack: ");
+    const int ewit = -tainted_stack.back ();
+    assert (marked (tainted, -ewit));
+
+    const unsigned uwit = elit2ulit (ewit);
+    tainted_stack.pop_back ();
+    
+    LOG ("restoring clauses with witness %d", ewit);
+    restore_clauses (uwit, clauses);
+    unmark (witness, ewit);
+  }
+  // Now we could remove entries from witness order which would result in a 
+  // scan of the full witness_order stack (O(#clauses on stack)).
+  // Hypothesis: We can also just ignore it and accept a longer witness_order
+  // stack when we call extend. It should still be correct.
+
+  // "resize" witness vector  
+  while (!witness.empty () && !witness.back ())
+    witness.pop_back ();
+}
+
+void External::restore_all (RestoreStats &clauses) {
+  assert (internal->opts.restoreall == 2);
+  LOG ("restoring all clauses");
+  for (unsigned uwit = 1; uwit < witness_stacks.size (); ++uwit) {
+    if (witness_stacks[uwit].empty ())
+      continue;
+    restore_clauses (uwit, clauses);
+  }
+  witness.clear (); // There should be no more clauses left on the stacks
+}
+
+void External::restore () {
+  START (restore);
+  internal->stats.restorations++;
+
+  RestoreStats clauses = {};
+
+  if (internal->opts.restoreall && tainted.empty ())
+    PHASE ("restore", internal->stats.restorations,
+           "forced to restore all clauses");
+
+#ifndef QUIET
+  {
+    unsigned numtainted = 0;
+    for (const auto b : tainted)
+      if (b)
+        numtainted++;
+
+    PHASE ("restore", internal->stats.restorations,
+           "starting with %u tainted literals %.0f%%", numtainted,
+           percent (numtainted, 2u * max_var));
+    LOG ("tainted_stack size = %zu", tainted_stack.size ());
+  }
+#endif
+
+  if (internal->opts.restoreall == 2) {
+    restore_all (clauses);
+  } 
+  else if (!tainted.empty ()) {
+    propagate_tainting (clauses);
+  }
+
+#ifndef QUIET
+  if (clauses.satisfied)
+    PHASE ("restore", internal->stats.restorations,
+           "removed %" PRId64 " satisfied %.0f%% of %" PRId64
+           " weakened clauses",
+           clauses.satisfied, percent (clauses.satisfied, clauses.weakened),
+           clauses.weakened);
+  else
+    PHASE ("restore", internal->stats.restorations,
+           "no satisfied clause removed out of %" PRId64
+           " weakened clauses",
+           clauses.weakened);
+
+  if (clauses.restored)
+    PHASE ("restore", internal->stats.restorations,
+           "restored %" PRId64 " clauses %.0f%% out of %" PRId64
+           " weakened clauses",
+           clauses.restored, percent (clauses.restored, clauses.weakened),
+           clauses.weakened);
+  else
+    PHASE ("restore", internal->stats.restorations,
+           "no clause restored out of %" PRId64 " weakened clauses",
+           clauses.weakened);
+  {
+    unsigned numtainted = 0;
+    for (const auto &b : tainted)
+      if (b)
+        numtainted++;
+
+    PHASE ("restore", internal->stats.restorations,
+           "finishing with %u tainted literals %.0f%%", numtainted,
+           percent (numtainted, 2u * max_var));
+  }
+#endif
+  tainted.clear ();
+  STOP (restore);
+}
+
+/*------------------------------------------------------------------------*/
+/*
 void External::restore_clauses () {
 
   assert (internal->opts.restoreall == 2 || !tainted.empty ());
@@ -263,5 +489,5 @@ void External::restore_clauses () {
 
   STOP (restore);
 }
-
+*/
 } // namespace CaDiCaL
