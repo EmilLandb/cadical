@@ -254,6 +254,9 @@
   STATISTIC (restart_levels,         2, relative, "per", restart) \
   STATISTIC (restart_stable,         2, percent, "%", restart) \
   STATISTIC (restorations,           1, relative, "per", searches) \
+  STATISTIC (restore_compacted,      0, NOTHING, 0, 0) \
+  STATISTIC (restore_seen_bytes,     0, percent, "%", restore_total_bytes) \
+  STATISTIC (restore_total_bytes,    0, NOTHING, 0, 0) \
   STATISTIC (restored_clauses,       1, relative, "per", restorations) \
   STATISTIC (restored_literals,      2, relative, "per", restored_clauses) \
   STATISTIC (reused,                 1, relative, "per", restart) \

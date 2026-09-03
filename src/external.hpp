@@ -260,7 +260,8 @@ struct External {
   void push_id_on_extension_stack (int ewit, int64_t id);
 
   struct RestoreStats {
-    int64_t weakened, satisfied, restored, removed;
+    int64_t weakened, satisfied, restored, removed, 
+            seenbytes, totalbytes, compacted;
   };
 
   // TODO: this only works with flexible array members yet.
@@ -282,6 +283,8 @@ struct External {
 
   // Restore clauses on witness_stack[uwit]
   void restore_clauses (unsigned uwit, RestoreStats &clauses);
+
+  void compact_witness_order ();
 
   // Propagate tainting end restore tainted clauses
   void propagate_tainting (RestoreStats &clauses);

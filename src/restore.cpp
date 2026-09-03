@@ -115,8 +115,40 @@ void External::restore_shared_clause (SharedClause *sc) {
 }
 
 /*------------------------------------------------------------------------*/
+// Compacting the witness_order stack
+void External::compact_witness_order () {
+  
+  VERBOSE (3, "compacting witness order stack of size %zu", 
+           witness_order.size ());
+
+  auto begin = witness_order.begin ();
+  auto end = witness_order.end ();
+  auto q = begin;
+
+  for (auto p = begin; p != end; ++p) {
+    const int ewit = *p;
+    
+    // Remove witness entry if tainted
+    if (marked (tainted, -ewit))
+      continue;
+
+    *q++ = ewit;
+  }
+  const size_t old_size = witness_order.size ();
+  witness_order.resize (q - begin);
+  internal->stats.restore_compacted += (int64_t) old_size - witness_order.size ();
+  internal->stats.restore_seen_bytes += old_size;
+  internal->stats.restore_total_bytes += old_size;
+  VERBOSE (3, "finished compacting with size %zu", 
+           witness_order.size ());
+}
+
 // Process one witness stack. I.e. restore all clauses that are not flushed.
 void External::restore_clauses (unsigned uwit, RestoreStats &clauses) {
+
+  VERBOSE (3, "restoring all clauses on witness stack %u (ulit) of size %zu", 
+           uwit, witness_stacks[uwit].size ());
+
   vector<int> &stack = witness_stacks[uwit];
   auto p = stack.begin ();
   auto end_of_stack = stack.end ();
@@ -198,6 +230,7 @@ void External::restore_clauses (unsigned uwit, RestoreStats &clauses) {
     // or at end_of_stack if this is the final clause
     clauses.removed++;
   }
+  clauses.seenbytes += sizeof (int) * stack.size ();
   stack.clear ();
 }
 
@@ -234,6 +267,7 @@ void External::restore_all (RestoreStats &clauses) {
     restore_clauses (uwit, clauses);
   }
   witness.clear (); // There should be no more clauses left on the stacks
+  witness_order.clear ();
 }
 
 void External::restore () {
@@ -264,7 +298,17 @@ void External::restore () {
     restore_all (clauses);
   } 
   else if (!tainted.empty ()) {
+    
+    for (const auto &s : witness_stacks)
+      clauses.totalbytes += s.size () * sizeof (int);
+
     propagate_tainting (clauses);
+
+    if (internal->opts.restorecompact)
+      compact_witness_order ();
+
+    internal->stats.restore_total_bytes += clauses.totalbytes;
+    internal->stats.restore_seen_bytes += clauses.seenbytes;
   }
 
 #ifndef QUIET
