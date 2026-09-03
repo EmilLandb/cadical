@@ -492,29 +492,45 @@ void External::extend () {
 }
 
 /*------------------------------------------------------------------------*/
-// TODO: Update to work with new data structure
+// For now this only works for single witnessed clauses.
+// For witness cube clauses there is still a problem since we have to sweep
+// across the ends of all witness stacks to see if there is a shared clause and
+// thereby collect all witnesses in the cube.
 bool External::traverse_witnesses_backward (WitnessIterator &it) {
   if (internal->unsat)
     return true;
   vector<int> clause, witness;
-  const auto begin = extension.begin ();
-  auto i = extension.end ();
-  while (i != begin) {
-    int lit;
-    while ((lit = *--i))
-      clause.push_back (lit);
-    assert (!lit);
-    --i;
-    const int64_t id =
-        ((int64_t) * (i - 1) << 32) + static_cast<int64_t> (*i);
+  //const auto begin = extension.begin (); 
+  //auto i = extension.end ();
+  vector<size_t> ws_index (witness_stacks.size ()); // initialize to size of witness_stacks
+  for (size_t i = 0; i < witness_stacks.size (); i++) {
+    const size_t stack_size = witness_stacks[i].size ();
+    ws_index[i] = stack_size;
+  }
+  for (size_t i = witness_order.size (); i-- > 0;) {
+    int ewit = witness_order[i];
+    const unsigned uwit = elit2ulit (ewit);
+    if (ws_index[uwit] == 0) // stale entry
+      continue;
+    vector<int>& wstack = witness_stacks[uwit];
+    size_t idx = ws_index[uwit];
+    // get literals of the clause
+    assert (idx > 0);
+    while (wstack[--idx] != 0) {
+      int elit = wstack[idx];
+      clause.push_back (elit);
+    } 
+    witness.push_back (ewit); // and the witness (single witness assumption)
+    assert (idx >= 3);
+    // now idx should be the index of the '0' before the two id fields
+    // so  wstack[idx - 1] is idl
+    // and wstack[idx - 2] is idu
+    const int64_t id = ((int64_t) wstack[idx - 2] << 32) + 
+                       static_cast<int64_t> (wstack[idx - 1]);
     assert (id);
-    i -= 2;
-    assert (!*i);
-    assert (i != begin);
-    while ((lit = *--i))
-      witness.push_back (lit);
+    ws_index[uwit] = idx - 3; // leave the index directly before the next clause
     reverse (clause.begin (), clause.end ());
-    reverse (witness.begin (), witness.end ());
+    //reverse (witness.begin (), witness.end ()); // Need later on for witness cubes
     LOG (clause, "traversing clause");
     if (!it.witness (clause, witness, id))
       return false;
@@ -523,7 +539,44 @@ bool External::traverse_witnesses_backward (WitnessIterator &it) {
   }
   return true;
 }
+/*
+  bool External::traverse_witnesses_backward (WitnessIterator &it) {
+    if (internal->unsat)
+      return true;
+    vector<int> clause, witness;
+    const auto begin = extension.begin ();
+    auto i = extension.end ();
+    while (i != begin) {
+      int lit;
+      while ((lit = *--i))
+        clause.push_back (lit);
+      assert (!lit);
+      --i;
+      const int64_t id =
+          ((int64_t) * (i - 1) << 32) + static_cast<int64_t> (*i);
+      assert (id);
+      i -= 2;
+      assert (!*i);
+      assert (i != begin);
+      while ((lit = *--i))
+        witness.push_back (lit);
+      reverse (clause.begin (), clause.end ());
+      reverse (witness.begin (), witness.end ());
+      LOG (clause, "traversing clause");
+      if (!it.witness (clause, witness, id))
+        return false;
+      clause.clear ();
+      witness.clear ();
+    }
+    return true;
+  }
+*/
+
 // TODO: Update to work with new data structure
+// Here we have a bigger problem currently: We always have a suffix of 
+// witness order that is not stale but we only know when an entry is stale 
+// while traversing backwards. So this is for now not supported at all.
+// We would need to rewrite the witness order stack after every restoration.
 bool External::traverse_witnesses_forward (WitnessIterator &it) {
   if (internal->unsat)
     return true;
