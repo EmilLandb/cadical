@@ -415,6 +415,7 @@ bool Internal::cover_clause (Clause *c, Coveror &coveror) {
           external->witness_order.push_back (clause_ewit);
           //external->push_witness_literal_on_extension_stack (other);
           //external->push_zero_on_extension_stack (externalize (other));
+          external->push_stamp_on_extension_stack (clause_ewit);
           external->push_id_on_extension_stack (clause_ewit, last_id);
           external->push_zero_on_extension_stack (clause_ewit);
           clause.clear ();
