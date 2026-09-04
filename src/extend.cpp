@@ -31,14 +31,22 @@ void External::push_id_on_extension_stack (int ewit, int64_t id) {
   const uint32_t higher_bits = static_cast<int> (id >> 32);
   const uint32_t lower_bits = (id & (((int64_t) 1 << 32) - 1));
   const unsigned uwit = elit2ulit (ewit);
-  if (uwit >= witness_stacks.size ())
-    witness_stacks.resize (uwit + 1); // the witness bitset is resized in mark
+  assert (uwit < witness_stacks.size ());
+  //if (uwit >= witness_stacks.size ())
+  //  witness_stacks.resize (uwit + 1); // the witness bitset is resized in mark
   witness_stacks[uwit].push_back (higher_bits);
   witness_stacks[uwit].push_back (lower_bits);
   LOG ("pushing id %" PRIu64 " = %d + %d on witness stack %d (external)", 
       id, higher_bits, lower_bits, ewit);
 }
 
+void External::push_stamp_on_extension_stack (int ewit) {
+  assert (ewit);
+  const unsigned uwit = elit2ulit (ewit);
+  assert (uwit < witness_stacks.size ());
+  witness_stacks[uwit].push_back (++stamp);
+  LOG ("pushing time stamp %u on witness stack %d (external)", stamp, ewit);
+}
 /*
 void External::push_clause_literal_on_extension_stack (int ilit) {
   assert (ilit);
@@ -56,8 +64,9 @@ void External::push_clause_literal_on_extension_stack (int ewit, int ilit) {
   const int elit = internal->externalize (ilit);
   assert (elit);
   const unsigned uwit = elit2ulit (ewit);
-  if (uwit >= witness_stacks.size ())
-    witness_stacks.resize (uwit + 1); // the witness bitset is resized in mark
+  assert (uwit < witness_stacks.size ());
+  //if (uwit >= witness_stacks.size ())
+  //  witness_stacks.resize (uwit + 1); // the witness bitset is resized in mark
   witness_stacks[uwit].push_back (elit);
   LOG ("pushing clause literal %d on witness stack %d (external) (internal %d)", elit, 
        ewit , ilit);
@@ -106,6 +115,7 @@ void External::push_clause_on_extension_stack (int wit, Clause *c) {
   assert (ewit);
   
   push_zero_on_extension_stack (ewit);
+  push_stamp_on_extension_stack (ewit);
   push_id_on_extension_stack (ewit, c->id);
   push_zero_on_extension_stack (ewit);
   for (const auto &lit : *c)
@@ -149,6 +159,7 @@ void External::push_binary_clause_on_extension_stack (int64_t id, int wit,
   assert (ewit);
 
   push_zero_on_extension_stack (ewit);
+  push_stamp_on_extension_stack (ewit);
   push_id_on_extension_stack (ewit, id);
   push_zero_on_extension_stack (ewit);
   push_clause_literal_on_extension_stack (ewit, wit);
@@ -399,6 +410,7 @@ void External::extend () {
     if (ws_index[uwit] == 0) // the entry is stale. Skip it.
       continue;
     vector<int>& wstack = witness_stacks[uwit];
+    LOG (wstack, "witness_stack[%u]", uwit);
     bool satisfied = false;
     if (ival (ewit) == ewit)  // Witness satisfied
       satisfied = true;
@@ -406,9 +418,9 @@ void External::extend () {
     size_t idx = ws_index[uwit]; // get the current "end" of the corresp. witness stack
     // Now it is time to parse the next clause and update ws_index
     // The current situation should look something like:
-    //  idu idl 0 l1 l2 l3 ... lk .
-    //                            ^
-    //                           idx
+    //  ts idu idl 0 l1 l2 l3 ... lk .
+    //                               ^
+    //                              idx
 
     // We look ahead to detect dummy clauses which look like this:
     // 0 0 0 ptr_u ptr_l 
@@ -461,9 +473,9 @@ void External::extend () {
         if (ival (elit) == elit)
           satisfied = true;
       }
-      // now idx should be the index of the '0' before the two id fields. update.
-      assert (idx >= 3);
-      ws_index[uwit] = idx - 3; // leave the index directly before the next clause, i.e. on '0'
+      // now idx should be the index of the '0' before the ts idu idl part. update.
+      assert (idx >= 4);
+      ws_index[uwit] = idx - 4; // leave the index directly before the next clause, i.e. on '0'
     }
     if (!ws_index[uwit]) { // Stack is processed. No more extensions with the current witness
       LOG ("witness stack of %d is completely processed", ewit);
@@ -521,14 +533,15 @@ bool External::traverse_witnesses_backward (WitnessIterator &it) {
       clause.push_back (elit);
     } 
     witness.push_back (ewit); // and the witness (single witness assumption)
-    assert (idx >= 3);
+    assert (idx >= 4);
     // now idx should be the index of the '0' before the two id fields
     // so  wstack[idx - 1] is idl
     // and wstack[idx - 2] is idu
+    // and wstack[idx - 3] is stamp
     const int64_t id = ((int64_t) wstack[idx - 2] << 32) + 
                        static_cast<int64_t> (wstack[idx - 1]);
     assert (id);
-    ws_index[uwit] = idx - 3; // leave the index directly before the next clause
+    ws_index[uwit] = idx - 4; // leave the index directly before the next clause
     reverse (clause.begin (), clause.end ());
     //reverse (witness.begin (), witness.end ()); // Need later on for witness cubes
     LOG (clause, "traversing clause");

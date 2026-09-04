@@ -91,6 +91,7 @@ struct External {
   bool concluded;
   vector<int> extension; // Solution reconstruction extension stack.
 
+  uint32_t stamp = 0; // Time stamping clauses on the witness stacks.
   vector<vector<int>> witness_stacks; // Reconstruction stacks for each witness.
   vector<int> witness_order; // For restoring the order of clauses in extend.
   vector<int> tainted_stack; // For propagating tainting in restore.
@@ -190,7 +191,7 @@ struct External {
     return find_or_default (e2i, elit, 0);
   }
   /*----------------------------------------------------------------------*/
-
+  // TODO: update descriptions
   // The following five functions push individual literals or clauses on the
   // extension stack indexed by ewit. They all take internal literals as argument, 
   // and map them back to external literals first, before pushing them on the 
@@ -198,6 +199,7 @@ struct External {
 
   void push_zero_on_extension_stack (int ewit);
 
+  void push_stamp_on_extension_stack (int ewit);
   // TODO: update descriptions
   // Our general version of extension stacks always pushes a set of witness
   // literals (for variable elimination the literal of the eliminated
