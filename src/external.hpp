@@ -58,7 +58,18 @@ class Terminator;
 class WitnessIterator;
 
 /*------------------------------------------------------------------------*/
+struct TaintedLess {
+  vector<uint32_t> &restore_start;
 
+  TaintedLess (vector<uint32_t> &rs) 
+    : restore_start (rs) {}
+
+  // min-heap
+  bool operator () (unsigned a, unsigned b) const {
+    return restore_start[a] >
+           restore_start[b];
+  }
+};
 /*------------------------------------------------------------------------*/
 
 struct External {
@@ -89,12 +100,16 @@ struct External {
 
   bool extended; // Have been extended.
   bool concluded;
+  bool restoring = false; // for conditionally pushing to tainted_lits in internalize
   vector<int> extension; // Solution reconstruction extension stack.
 
   uint32_t stamp = 0; // Time stamping clauses on the witness stacks.
   vector<vector<int>> witness_stacks; // Reconstruction stacks for each witness.
   vector<int> witness_order; // For restoring the order of clauses in extend.
-  vector<int> tainted_stack; // For propagating tainting in restore.
+  vector<int> tainted_lits; // For initializing the heap
+  vector<uint32_t> restore_start; // Priority for restoration
+  heap<TaintedLess> tainted_heap;
+  vector<bool> processed;
 
   vector<bool> witness; // Literal witness on extension stack.
   vector<bool> tainted; // Literal tainted in adding literals.
@@ -275,16 +290,27 @@ struct External {
     int elits[]; // zero terminated // TODO: maybe just add a size field instead?
   };
 
+  void set_restore_start (unsigned ulit, uint32_t timestamp);
+
+  uint32_t get_restore_start (unsigned ulit) const;
+
+  // Add a new entry for ulit with priority timestamp or update an existing one.
+  void schedule (unsigned ulit, uint32_t timestamp);
+
+  // Decide whether a witness needs to be scheduled for restoration triggered
+  // by restoring a clause that contains elit and has time stamp ts.
+  void decide_scheduling (int elit, uint32_t timestamp);
+
   // Restore a clause, which was pushed on the extension stack.
   void restore_clause (const vector<int>::const_iterator &begin,
                        const vector<int>::const_iterator &end,
-                       const int64_t id);
+                       const int64_t id, const uint32_t timestamp);
 
   // Restore a shared clause, which has references on the witness stacks
   void restore_shared_clause (SharedClause *sc);
 
   // Restore clauses on witness_stack[uwit]
-  void restore_clauses (unsigned uwit, RestoreStats &clauses);
+  void restore_clauses (unsigned uwit, uint32_t ts, RestoreStats &clauses);
 
   void compact_witness_order ();
 
