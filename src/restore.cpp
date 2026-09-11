@@ -167,6 +167,61 @@ void External::restore_shared_clause (SharedClause *sc) {
   internal->stats.restored_clauses++;
 }
 
+void External::restore_shared_stack (SharedStack *ss, RestoreStats &clauses) {
+  const uint32_t shared_stamp = ss->stamp;
+  VERBOSE (3, "restoring clauses with stamp %u on shared stack of size %zu ", 
+           shared_stamp, ss->clause_data.size ());
+  LOG (ss->clause_data, "shared stack clauses: ");
+  LOG (ss->witness_cube, "shared stack cube: ");
+  // The entries on clause_data look as follows:
+  // 0 id_u id_l 0 l1 l2 ... lk 0 id_u id_l 0 l1 ...
+  vector<int> &stack = ss->clause_data;
+  auto p = stack.begin ();
+  auto end_of_stack = stack.end ();
+  while (p != end_of_stack) {
+    p++; // idu
+    clauses.weakened++;
+    // copy the id of the clause
+    const int64_t id = ((int64_t) (*p) << 32) + (int64_t) *(p + 1);
+    int satisfied = 0;
+    LOG ("id is %" PRId64, id);
+    p += 3; // idu -> idl -> 0 -> first literal
+    auto begin = p;
+    // now p is on the first literal of the clause. Check satisfied and
+    // proceed pointer to the next clause (or end of stack)
+    while (p != end_of_stack && *p) {
+      if (!satisfied && fixed (*p) > 0)
+        satisfied = *p;
+      ++p;
+    }
+    if (satisfied && !internal->opts.restoreflush) {
+      LOG (begin, p, "forced to not remove %d satisfied",
+           satisfied);
+      satisfied = 0;
+    } 
+    if (satisfied) {
+      LOG (begin, p, 
+             "flushing implied %s clause satisfied by %d from shared stack", 
+             id ? "" : "dummy", satisfied);
+        clauses.satisfied++;
+    } else {
+      clauses.restored++;
+      if (id)
+        restore_clause (begin, p, id, shared_stamp);
+    }
+  }     
+  clauses.seenbytes += sizeof (int) * stack.size ();
+  clauses.totalbytes += sizeof (int) * stack.size (); // TODO: This is not really doing that
+
+  // Clear the shared stack but only free if this is the last existing reference
+  stack.clear ();
+  ss->witness_cube.clear ();
+  assert (ss->backlinks);
+  ss->backlinks--;
+  if (!ss->backlinks)
+    delete ss;
+}
+
 // Compacting the witness_order stack
 void External::compact_witness_order () {
   
@@ -176,23 +231,44 @@ void External::compact_witness_order () {
   auto begin = witness_order.begin ();
   auto end = witness_order.end ();
   auto q = begin;
-
-  for (auto p = begin; p != end; ++p) {
-    const int ewit = *p;
-    const unsigned uwit = elit2ulit (ewit);
-    // Keep the witness entries corresponding to clauses which were skipped
-    // during restoration.
-    if (u_marked (processed, uwit)) {
-      assert (uwit < restore_start.size ());
-      if (restore_start[uwit]) {
-        restore_start[uwit]--;
-        *q++ = ewit;
+  auto p = witness_order.begin ();
+  while (p != end) {
+    if (*p) { // regular witness entry
+      const int ewit = *p++;
+      const unsigned uwit = elit2ulit (ewit);
+      // Keep the witness entries corresponding to clauses which were skipped
+      // during restoration.  
+      if (u_marked (processed, uwit)) {
+        assert (uwit < restore_start.size ());
+        if (restore_start[uwit]) {
+          restore_start[uwit]--;
+          *q++ = ewit;
+        }
+        continue;    
       }
+      *q++ = ewit;
       continue;
-    }    
-
-    *q++ = ewit;
+    }
+    // Shared stack entry: 0 pu pl 0
+    //                     ^      
+    assert (p + 3 < end);
+    assert (*(p + 3) == 0);
+    const uintptr_t ptr =
+          (static_cast<uintptr_t> (static_cast<uint32_t> (*(p + 1))) << 32) |
+           static_cast<uint32_t> (*(p + 2));
+    SharedStack *ss = reinterpret_cast<SharedStack *> (ptr);
+    
+    if (!ss->witness_cube.empty ()) {
+      // Live shared stack: keep the complete entry.
+      *q++ = *p++;
+      *q++ = *p++;
+      *q++ = *p++;
+      *q++ = *p++;
+    } else {
+      p += 4;
+    }                      
   }
+
   const size_t old_size = witness_order.size ();
   witness_order.resize (q - begin);
 
@@ -218,36 +294,63 @@ void External::restore_clauses (unsigned uwit, uint32_t ts,
   while (p != end_of_stack) {
     assert (!*p); // p is on '0' 
     p++; // now on stamp. 
-    // TODO: if stamp is zero we have a shared clause, now dereference pointer
-    // else
     const uint32_t clause_stamp = static_cast<uint32_t> (*p);
-    assert (clause_stamp);
-    if (clause_stamp >= ts) {
-      LOG ("Found first clause to be restored with time stamp %u", clause_stamp);
-      --p;
-      break;
+    if (!clause_stamp) { // shared stack case
+      // 0 0 0 pu pl 0
+      //   ^
+      const uintptr_t ptr =
+          (static_cast<uintptr_t> (static_cast<uint32_t> (*(p + 2))) << 32) |
+           static_cast<uint32_t> (*(p + 3));
+      SharedStack *ss = reinterpret_cast<SharedStack*> (ptr);
+      const uint32_t shared_stamp = ss->stamp;
+      if (shared_stamp >= ts) {
+        LOG ("Found first reconstruction entry to be restored with time stamp %u", shared_stamp);
+        --p;
+        break;
+      }
+      // progress to next clauses first '0' or end of stack
+      p += 4;
+    } 
+    else { // regular clause
+      if (clause_stamp >= ts) {
+        LOG ("Found first reconstruction entry to be restored with time stamp %u", clause_stamp);
+        --p;
+        break;
+      }  
+      p += 3; // now on '0' before literals or on p_l
+      // Skip to next clauses first '0' 
+      while (++p != end_of_stack && *p)
+        continue;
+      // Only update skipped for regular clauses! 
+      // Shared clauses are not associated with uwit on witness_order
+      skipped++; 
     }
-    skipped++;
-    p += 3; // now on '0' after the id/pointer part
-    // Skip to next clauses first '0' 
-    while (++p != end_of_stack && *p)
-      continue;
   }
   // p is on the '0' of the first clause to be restored
   auto cutoff = p;
   while (p != end_of_stack) {
     p++; // stamp
     const uint32_t clause_stamp = static_cast<uint32_t> (*p);
-    assert (clause_stamp >= ts);
-    p++; // idu
-    clauses.weakened++;
-    // copy the id of the clause
-    const int64_t id = ((int64_t) (*p) << 32) + (int64_t) *(p + 1);
-    int satisfied = 0;
-    if (id) {
+    if (!clause_stamp) { // Shared Stack!
+      // 0 0 0 pu pl 0
+      //   ^
+      const uintptr_t ptr =
+          (static_cast<uintptr_t> (static_cast<uint32_t> (*(p + 2))) << 32) |
+           static_cast<uint32_t> (*(p + 3));
+      SharedStack *ss = reinterpret_cast<SharedStack*> (ptr);
+      assert (ss->stamp >= ts);
+      restore_shared_stack (ss, clauses);
+      p += 4;
+    } 
+    else { // Regular clause
+      assert (clause_stamp >= ts);
+      p++; // idu
+      clauses.weakened++;
+      // copy the id of the clause
+      const int64_t id = ((int64_t) (*p) << 32) + (int64_t) *(p + 1);
+      int satisfied = 0;
       LOG ("id is %" PRId64, id);
       p += 3; // idu -> idl -> 0 -> first literal
-
       auto begin = p;
       // now p is on the first literal of the clause. Check satisfied and
       // proceed pointer to the next clause (or end of stack)
@@ -261,7 +364,6 @@ void External::restore_clauses (unsigned uwit, uint32_t ts,
              satisfied);
         satisfied = 0;
       } 
-
       if (satisfied) {
         LOG (begin, p, 
                "flushing implied %s clause satisfied by %d from extension stack", 
@@ -269,10 +371,9 @@ void External::restore_clauses (unsigned uwit, uint32_t ts,
           clauses.satisfied++;
       } else {
         clauses.restored++;
-        if (id)
-          restore_clause (begin, p, id, clause_stamp);
+        restore_clause (begin, p, id, clause_stamp);
       }
-    }
+    }    
   }
   clauses.seenbytes += sizeof (int) * stack.size ();
   // Now resize so that everything after cutoff (including cutoff is deleted)
@@ -303,7 +404,7 @@ void External::propagate_tainting (RestoreStats &clauses) {
 void External::restore_all (RestoreStats &clauses) {
   assert (internal->opts.restoreall == 2);
   LOG ("restoring all clauses");
-  for (unsigned uwit = 1; uwit < witness_stacks.size (); ++uwit) {
+  for (unsigned uwit = 0; uwit < witness_stacks.size (); ++uwit) {
     if (witness_stacks[uwit].empty ())
       continue;
     restore_clauses (uwit, 0, clauses);
@@ -340,7 +441,6 @@ void External::restore () {
     restore_all (clauses);
   } 
   else if (!tainted_lits.empty ()) {
-    // TODO: Now initialize the heap from tainted_lits and clear the stack afterward
     for (auto elit : tainted_lits) {
       const unsigned uwit = elit2ulit (-elit);
       vector<int> &stack = witness_stacks[uwit];
@@ -348,18 +448,41 @@ void External::restore () {
       if (stack.empty ())
         continue;
 
-      // TODO: check for zero time stamp (or zero id) and then 
-      //       look up the time stamp in the shared clause instead.
-
+      auto p = stack.begin ();
       // Get time stamp of first clause on the corresp. witness stack
       // 0 ts idu idl 0 l1 l2 ...
-      const uint32_t ts = static_cast<uint32_t> (stack[1]);
-      // and schedule it. 
-      assert (!get_restore_start (uwit));
-      schedule (uwit, ts);
+      uint32_t ts = static_cast<uint32_t> (stack[1]);
+      while (p != stack.end ()) {
+        assert (!*p);
+        ts = static_cast<uint32_t> (*(p + 1));
+        if (ts) { // regular entry
+          break;
+        }
+        // Shared stack: 0 0 0 pu pl 0
+        const uintptr_t ptr =
+            (static_cast<uintptr_t> (static_cast<uint32_t> (*(p + 3))) << 32) |
+                                     static_cast<uint32_t> (*(p + 4));
+
+        SharedStack *ss = reinterpret_cast<SharedStack *> (ptr);
+
+        if (!ss->witness_cube.empty ()) {
+          ts = ss->stamp;
+          break;
+        }
+
+        // Stale shared stack. Just skip over its witness-stack representation.
+        p += 5;
+      }
+      // Schedule with priority ts
+      if (p != stack.end ()) {
+        assert (ts);
+        assert (!get_restore_start (uwit));
+        schedule (uwit, ts);
+      }      
     }
     tainted_lits.clear ();
 
+    // TODO: this does not account for shared stack sizes...
     for (const auto &s : witness_stacks)
       clauses.totalbytes += s.size () * sizeof (int);
 
