@@ -158,7 +158,6 @@ void External::restore_in_order (RestoreStats &clauses) {
   vector<size_t> ws_index (wit_size);
   vector<size_t> skipped (wit_size);
 
-<<<<<<< HEAD
   // if restoring[x] skipped[x] changes its meaning to the index for resizing.
   vector<bool> restoring (wit_size);
   // To decide whether a literal is still used as a witness 
