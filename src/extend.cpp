@@ -258,7 +258,7 @@ void External::extend_shared_stack (vector<int> *ss) {
 
 void External::extend () {
   assert (!extended);
-  START (extend);
+  PROFILE_SCOPE (extend);
   internal->stats.extensions++;
   size_t witness_order_size = witness_order.size ();
   if (witness_order_size > internal->stats.extensionmaxwit)
@@ -370,7 +370,6 @@ void External::extend () {
          "flipped %" PRId64 " literals during extension", flipped);
   extended = true;
   LOG ("extended");
-  STOP (extend);
 }
 
 /*------------------------------------------------------------------------*/

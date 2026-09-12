@@ -312,7 +312,7 @@ void Closure::extract_binaries () {
     return;
   if (internal->terminated_asynchronously ())
     return;
-  START (extractbinaries);
+  PROFILE_SCOPE (extractbinaries);
   offsetsize.resize (internal->max_var * 2 + 3, make_pair (0, 0));
 
   // in kissat this is done during watch clearing. TODO: consider doing this
@@ -325,7 +325,6 @@ void Closure::extract_binaries () {
     if (c->size > 2)
       continue;
     if (internal->terminated_asynchronously ()) {
-      STOP (extractbinaries);
       return;
     }
     assert (c->size == 2);
@@ -338,7 +337,6 @@ void Closure::extract_binaries () {
                                        already_sorted ? other : lit));
   }
   if (internal->terminated_asynchronously ()) {
-    STOP (extractbinaries);
     return;
   }
 
@@ -368,7 +366,6 @@ void Closure::extract_binaries () {
   const size_t size = internal->clauses.size ();
   for (size_t i = 0; i < size; ++i) {
     if (internal->terminated_asynchronously ()) {
-      STOP (extractbinaries);
       return;
     }
 
@@ -419,7 +416,6 @@ void Closure::extract_binaries () {
   // kissat has code to remove duplicates, which we have already removed
   // before starting congruence
   if (internal->terminated_asynchronously ()) {
-    STOP (extractbinaries);
     return;
   }
 
@@ -445,7 +441,6 @@ void Closure::extract_binaries () {
     binaries.resize (i);
   }
   binaries.clear ();
-  STOP (extractbinaries);
   VERBOSE (2,
            "[congruence-%" PRId64
            "] extracted %zu binaries (plus %zu already "
@@ -1009,9 +1004,9 @@ void Closure::rewrite_clause_to_clause_vector (Clause *c, int except) {
 }
 
 Clause *Closure::new_tmp_clause (std::vector<int> &clause) {
-  assert (internal->lrat);
+  assert (internal->lrat || internal->proof);
   assert (!clause.empty ());
-  assert (!lrat_chain.empty ());
+  assert (!internal->lrat || !lrat_chain.empty ());
   bool clear = false;
 
   LOG (clause, "learn new tmp clause");
@@ -1074,6 +1069,7 @@ Clause *Closure::new_tmp_clause (std::vector<int> &clause) {
   clause_delete.release ();
 
   assert (internal->lrat_chain.empty ());
+
   return c;
 }
 
@@ -2552,6 +2548,7 @@ void Closure::update_and_gate (Gate *g, GatesTable::iterator it, int src,
                                                extra_reasons_ulit);
       if (merge_literals (g, g, g->lhs, g->rhs[0], extra_reasons_lit,
                           extra_reasons_ulit)) {
+	assert (garbage);
         ++internal->stats.congruence_unary;
         ++internal->stats.congruence_unary_and;
       }
@@ -2569,8 +2566,10 @@ void Closure::update_and_gate (Gate *g, GatesTable::iterator it, int src,
         produce_lrat_for_and_merge (g, h, extra_reasons_lit2,
                                     extra_reasons_ulit2);
       if (merge_literals (g, h, g->lhs, h->lhs, extra_reasons_lit2,
-                          extra_reasons_ulit2))
+                          extra_reasons_ulit2)) {
+	assert (garbage);
         ++internal->stats.congruence_ands;
+      }
     } else {
       assert (g->indexed);
       assert (it != table.end ());
@@ -2592,7 +2591,7 @@ void Closure::update_and_gate (Gate *g, GatesTable::iterator it, int src,
 
 void Closure::update_xor_gate (Gate *g, GatesTable::iterator git) {
   assert (g->tag == Gate_Type::XOr_Gate);
-  assert (!internal->unsat && chain.empty ());
+  assert (!internal->unsat);
   LOG (g, "updating");
   bool garbage = true;
   assert (g->arity () == 0 || internal->clause.empty ());
@@ -2650,7 +2649,7 @@ void Closure::update_xor_gate (Gate *g, GatesTable::iterator git) {
     }
     assert (clause.empty ());
   } else {
-    Gate *h = find_xor_gate (g);
+    Gate *h = find_xor_gate (g, g);
     if (h) {
       assert (garbage);
       std::vector<LRAT_ID> reasons_implication, reasons_back;
@@ -2661,6 +2660,7 @@ void Closure::update_xor_gate (Gate *g, GatesTable::iterator git) {
           h->lhs, reasons_implication, reasons_back);
       if (merge_literals (g, h, g->lhs, h->lhs, reasons_implication,
                           reasons_back)) {
+	assert (garbage);
         ++internal->stats.congruence_xors;
       }
       delete_proof_chain ();
@@ -3418,7 +3418,7 @@ void Closure::extract_and_gates () {
     return;
   if (internal->terminated_asynchronously ())
     return;
-  START (extractands);
+  PROFILE_SCOPE (extractands);
 
   marks.resize (internal->max_var * 2 + 3);
   init_and_gate_extraction ();
@@ -3450,7 +3450,6 @@ void Closure::extract_and_gates () {
            internal->stats.congruence_rounds,
            internal->stats.congruence_gates_and - gates_before);
   reset_and_gate_extraction ();
-  STOP (extractands);
 }
 
 /*------------------------------------------------------------------------*/
@@ -3530,6 +3529,8 @@ void Closure::check_implied () {
 void Closure::add_xor_shrinking_proof_chain (Gate *g, int pivot) {
   assert (internal->clause.empty ());
   assert (clause.empty ());
+  assert (unsimplified.empty ());
+  assert (chain.empty ());
   if (!internal->proof)
     return;
   LOG (g, "starting XOR shrinking proof chain");
@@ -3540,7 +3541,6 @@ void Closure::add_xor_shrinking_proof_chain (Gate *g, int pivot) {
                                         pivot);
     gate_sort_lrat_reasons (first, pivot, g->lhs);
   }
-
   auto &clause = internal->clause;
 
   const int lhs = g->lhs;
@@ -3558,16 +3558,19 @@ void Closure::add_xor_shrinking_proof_chain (Gate *g, int pivot) {
     LOG (pair.clause, "key %d", pair.current_lit);
   }
 #endif
+  LRAT_ID id1 = -1;
+  LRAT_ID id2 = -1;
+
   for (unsigned i = 0; i != end; ++i) {
     while (i && parity != parity_lits (clause))
       inc_lits (clause);
     LOG (clause, "xor shrinking clause");
     if (!internal->lrat) {
       clause.push_back (pivot);
-      check_and_add_to_proof_chain (clause);
+      id1 = check_and_add_to_proof_chain (clause);
       clause.pop_back ();
       clause.push_back (-pivot);
-      check_and_add_to_proof_chain (clause);
+      id2 = check_and_add_to_proof_chain (clause);
       clause.pop_back ();
     }
     if (internal->lrat) {
@@ -3581,8 +3584,30 @@ void Closure::add_xor_shrinking_proof_chain (Gate *g, int pivot) {
         newclauses.push_back (LitClausePair (0, c));
         lrat_chain.clear ();
       } else {
-        check_and_add_to_proof_chain (clause);
+        // we have to keep this clause as it is justifying the XOR
+	// gate (and want to delete it later).
+        new_tmp_clause (clause);
+        if (internal->proof) {
+          clause.push_back (pivot);
+          internal->proof->delete_clause (id1, false, clause);
+          clause.pop_back ();
+          clause.push_back (-pivot);
+          internal->proof->delete_clause (id2, false, clause);
+          clause.pop_back ();
+        }
       }
+    } else if (!internal->lrat) {
+      // push the two clauses to the chain (the unit will be derived
+      // later from those two clauses). Like LRAT, but we do not
+      // allocate all clauses as clauses.
+      assert (internal->proof);
+      assert (clause.size () == 1);
+      clause.push_back (pivot);
+      add_clause_to_chain (clause, id1);
+      clause.pop_back();
+      clause.push_back (-pivot);
+      add_clause_to_chain(clause, id2);
+      clause.pop_back();
     }
     if (clause.size () == 1)
       return;
@@ -3630,17 +3655,17 @@ void Closure::check_xor_gate_implied (Gate const *const g) {
   clause.clear ();
 }
 
-Gate *Closure::find_xor_lits (const vector<int> &rhs) {
+Gate *Closure::find_xor_lits (const vector<int> &rhs, Gate *except) {
   assert (is_sorted (begin (rhs), end (rhs),
                      sort_literals_by_var_smaller (internal)));
-  return find_gate_lits (rhs, Gate_Type::XOr_Gate);
+  return find_gate_lits (rhs, Gate_Type::XOr_Gate, except);
 }
 
-Gate *Closure::find_xor_gate (const Gate *const g) {
+Gate *Closure::find_xor_gate (const Gate *const g, Gate *except) {
   assert (g->tag == Gate_Type::XOr_Gate);
   assert (is_sorted (begin (*g), end (*g),
                      sort_literals_by_var_smaller (internal)));
-  return find_gate_lits (begin (*g), end (*g), Gate_Type::XOr_Gate);
+  return find_gate_lits (begin (*g), end (*g), Gate_Type::XOr_Gate, except);
 }
 
 void Closure::reset_xor_gate_extraction () { internal->clear_occs (); }
@@ -3817,6 +3842,7 @@ void Closure::add_ite_turned_and_binary_clauses (Gate *g) {
 void Closure::simplify_unit_xor_lrat_clauses (
     const vector<LitClausePair> &source, int lhs) {
   assert (internal->lrat);
+  assert (lrat_chain.empty ());
   for (auto pair : source) {
     rewrite_clause_to_clause_vector (pair.clause, lhs);
     if (lrat_chain.size ()) {
@@ -4368,7 +4394,7 @@ void Closure::extract_xor_gates () {
     return;
   if (internal->terminated_asynchronously ())
     return;
-  START (extractxors);
+  PROFILE_SCOPE (extractxors);
 #ifndef QUIET
   const int64_t gates_before =
       (int64_t) internal->stats.congruence_gates_xor;
@@ -4380,7 +4406,6 @@ void Closure::extract_xor_gates () {
     if (internal->unsat)
       break;
     if (internal->terminated_asynchronously ()) {
-      STOP (extractxors);
       return;
     }
 
@@ -4392,7 +4417,6 @@ void Closure::extract_xor_gates () {
            internal->stats.congruence_rounds,
            internal->stats.congruence_gates_xor - gates_before);
   reset_xor_gate_extraction ();
-  STOP (extractxors);
 }
 
 /*------------------------------------------------------------------------*/
@@ -4804,6 +4828,9 @@ void Closure::rewrite_xor_gate (Gate *g, int dst, int src) {
   assert (internal->clause.size () <= 1);
   update_xor_gate (g, git);
 
+  if (dst_count > 1)
+    delete_proof_chain ();
+
   if (!g->garbage && !internal->unsat && original_dst_negated &&
       dst_count == 1) {
     connect_goccs (g, dst);
@@ -4957,7 +4984,7 @@ bool Closure::propagate_binary_clauses_in_and_gates () {
 size_t Closure::propagate_units_and_equivalences () {
   if (internal->terminated_asynchronously ())
     return 0;
-  START (congruencemerge);
+  PROFILE_SCOPE (congruencemerge);
   size_t propagated = 0;
   LOG ("propagating at least %zd units", schedule.size ());
   assert (lrat_chain.empty ());
@@ -4967,7 +4994,6 @@ size_t Closure::propagate_units_and_equivalences () {
     found_new_unit = false;
     while (propagate_units () && !schedule.empty ()) {
       if (internal->terminated_asynchronously ()) {
-        STOP (congruencemerge);
         return 0;
       }
       assert (!internal->unsat);
@@ -5009,7 +5035,6 @@ size_t Closure::propagate_units_and_equivalences () {
     }
   }
 #endif
-  STOP (congruencemerge);
   return propagated;
 }
 
@@ -5049,8 +5074,7 @@ void Closure::reset_closure () {
     Gate::delete_gate (gate);
   garbage.clear ();
 
-  if (internal->lrat) {
-    assert (internal->proof);
+  if (internal->lrat || internal->proof) {
     for (auto c : extra_clauses) {
       assert (!c->garbage);
       internal->proof->delete_clause (c);
@@ -5075,7 +5099,7 @@ void Closure::reset_extraction () {
 }
 
 void Closure::forward_subsume_matching_clauses () {
-  START (congruencematching);
+  PROFILE_SCOPE (congruencematching);
   reset_closure ();
   std::vector<signed char> matchable;
   matchable.resize (internal->max_var + 1);
@@ -5192,7 +5216,6 @@ void Closure::forward_subsume_matching_clauses () {
            "clauses out of %zu tried %.0f%% clauses",
            internal->stats.congruence_rounds, subsumed, tried,
            percent (subsumed, tried));
-  STOP (congruencematching);
 }
 
 /*------------------------------------------------------------------------*/
@@ -6066,13 +6089,14 @@ bool Closure::rewrite_ite_gate_to_xor_or_and (Gate *g, Gate_Type new_tag,
       Gate *h;
       if (new_tag == Gate_Type::And_Gate) {
         check_and_gate_implied (g);
-        h = find_and_lits (begin (*g), end (*g));
+        h = find_and_lits (begin (*g), end (*g), g);
       } else {
         assert (new_tag == Gate_Type::XOr_Gate);
         check_xor_gate_implied (g);
-        h = find_xor_gate (g);
+        h = find_xor_gate (g, g);
       }
       if (h) {
+        assert (!h->garbage);
         garbage = true;
         if (new_tag == Gate_Type::XOr_Gate) {
           std::vector<LRAT_ID> reasons_implication, reasons_back;
@@ -6386,8 +6410,10 @@ void Closure::rewrite_ite_gate (Gate *g, int dst, int src) {
         if (g->lhs != normalized_lhs)
           normalized_lhs = find_eager_representative (normalized_lhs);
         if (merge_literals (g, h, normalized_lhs, h->lhs, extra_reasons_lit,
-                            extra_reasons_ulit))
+                            extra_reasons_ulit)) {
+	  assert (garbage);
           ++internal->stats.congruence_ites;
+        }
         delete_proof_chain ();
         assert (internal->unsat || chain.empty ());
       } else {
@@ -6819,7 +6845,8 @@ void Closure::simplify_ite_gate (Gate *g) {
       assert (is_sorted (begin (*g), end (*g),
                          sort_literals_by_var_smaller (internal)));
       check_and_gate_implied (g);
-      Gate *h = find_and_lits (begin (*g), end (*g));
+      // g is already an AND gate, so we have to exclude it
+      Gate *h = find_and_lits (begin (*g), end (*g), g);
       if (h) {
         assert (garbage);
         std::vector<LRAT_ID> reasons_lrat, reasons_lrat_back;
@@ -6829,6 +6856,7 @@ void Closure::simplify_ite_gate (Gate *g) {
         }
         if (merge_literals (g, h, g->lhs, h->lhs, reasons_lrat,
                             reasons_lrat_back)) {
+	  assert (garbage);
           ++internal->stats.congruence_ites;
         }
       } else {
@@ -7832,7 +7860,7 @@ void Closure::extract_ite_gates () {
     return;
   if (internal->terminated_asynchronously ())
     return;
-  START (extractites);
+  PROFILE_SCOPE (extractites);
   std::vector<ClauseSize> candidates;
 #ifndef QUIET
   const int64_t gates_before =
@@ -7852,17 +7880,15 @@ void Closure::extract_ite_gates () {
            internal->stats.congruence_rounds,
            internal->stats.congruence_gates_ite - gates_before);
   reset_ite_gate_extraction ();
-  STOP (extractites);
 }
 
 /*------------------------------------------------------------------------*/
 void Closure::extract_gates () {
-  START (extract);
+  PROFILE_SCOPE (extract);
   extract_and_gates ();
   assert (internal->unsat || lrat_chain.empty ());
   assert (internal->unsat || chain.empty ());
   if (internal->unsat || internal->terminated_asynchronously ()) {
-    STOP (extract);
     return;
   }
   if (internal->lrat) { // save some memory
@@ -7880,11 +7906,9 @@ void Closure::extract_gates () {
   assert (internal->unsat || chain.empty ());
 
   if (internal->unsat || internal->terminated_asynchronously ()) {
-    STOP (extract);
     return;
   }
   extract_ite_gates ();
-  STOP (extract);
 }
 
 /*------------------------------------------------------------------------*/
@@ -7942,7 +7966,8 @@ bool Internal::extract_gates (bool remove_units_before_run) {
   clear_watches ();
   //  connect_binary_watches ();
 
-  START_SIMPLIFIER (congruence, CONGRUENCE);
+  MODE_SCOPE_SIMPLIFY (CONGRUENCE);
+  PROFILE_SCOPE_SIMPLIFY (congruence);
   Closure *closure = new Closure (this);
   DeferDeletePtr<Closure> delete_closure (closure);
 
@@ -8008,7 +8033,6 @@ bool Internal::extract_gates (bool remove_units_before_run) {
     learn_empty_clause ();
   }
 
-  STOP_SIMPLIFIER (congruence, CONGRUENCE);
   report ('c', !opts.reportall && !(stats.congruent - old_merged));
 #ifndef NDEBUG
   size_t watched = 0;

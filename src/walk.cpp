@@ -355,7 +355,7 @@ inline double Walker::score (unsigned i) {
 /*------------------------------------------------------------------------*/
 
 ClauseOrBinary Internal::walk_pick_clause (Walker &walker) {
-  require_mode (WALK);
+  MODE_REQUIRE (WALK);
   assert (!walker.broken.empty ());
   size_t size = walker.broken.size ();
   if (size > INT_MAX)
@@ -379,8 +379,8 @@ ClauseOrBinary Internal::walk_pick_clause (Walker &walker) {
 // is flipped and set to false.  This is called the 'break-count' of 'lit'.
 
 unsigned Internal::walk_break_value (int lit, int64_t &ticks) {
-  require_mode (WALK);
-  START (walkbreak);
+  MODE_REQUIRE (WALK);
+  PROFILE_SCOPE (walkbreak);
   assert (val (lit) > 0);
   const int64_t oldticks = ticks;
   int64_t local_ticks = oldticks;
@@ -444,7 +444,6 @@ unsigned Internal::walk_break_value (int lit, int64_t &ticks) {
   }
   stats.ticks_walk_break += (local_ticks - oldticks);
   ticks += (local_ticks - oldticks);
-  STOP (walkbreak);
 
   return res;
 }
@@ -577,10 +576,10 @@ int Internal::walk_pick_lit (
 
 // flips a literal unless we run out of ticks.
 bool Internal::walk_flip_lit (Walker &walker, int lit) {
-  START (walkflip);
+  MODE_REQUIRE (WALK);
+  PROFILE_SCOPE (walkflip);
   const int64_t old = walker.ticks;
   int64_t ticks = old;
-  require_mode (WALK);
   LOG ("flipping assign %d", lit);
   assert (val (lit) < 0);
 
@@ -600,12 +599,6 @@ bool Internal::walk_flip_lit (Walker &walker, int lit) {
     const Watch &w = ws[0];
     __builtin_prefetch (&w, 0, 1);
   }
-
-  auto stop_and_return_false = [&] () -> bool {
-    walker.ticks = ticks;
-    STOP (walkflip);
-    return false;
-  };
 
   // Then remove 'c' and all other now satisfied (made) clauses.
   {
@@ -717,8 +710,10 @@ bool Internal::walk_flip_lit (Walker &walker, int lit) {
       }
     }
 #endif
-    if (ticks > limit)
-      return stop_and_return_false ();
+    if (ticks > limit) {
+      walker.ticks = ticks;
+      return false;
+    }
   }
 
   stats.ticks_walk_flip_broke += ticks - old;
@@ -762,8 +757,10 @@ bool Internal::walk_flip_lit (Walker &walker, int lit) {
         continue;
       }
 
-      if (ticks > limit)
-        return stop_and_return_false ();
+      if (ticks > limit) {
+        walker.ticks = ticks;
+        return false;
+      }
       // now the expansive part
       assert (d->size != 2);
       ++ticks;
@@ -811,7 +808,6 @@ bool Internal::walk_flip_lit (Walker &walker, int lit) {
     ws.clear ();
   }
   walker.ticks = ticks;
-  STOP (walkflip);
   stats.ticks_walk_flip_wl += ticks - old_after_broken;
   stats.ticks_walk_flip += ticks - old;
   return true;
@@ -889,12 +885,13 @@ int Internal::walk_round (int64_t limit, bool prev) {
   if (res) {
     return res;
   }
-  clear_watches ();
 
   // Remove all fixed variables first (assigned at decision level zero).
   //
   if (last.collect.fixed < stats.vars_all_fixed)
     garbage_collection ();
+
+  clear_watches ();
 
 #ifndef QUIET
   // We want to see more messages during initial local search.
@@ -1175,13 +1172,13 @@ int Internal::walk_round (int64_t limit, bool prev) {
 }
 
 void Internal::walk () {
-  START_INNER_WALK ();
+  MODE_SCOPE_WALK (WALK);
+  PROFILE_SCOPE_WALK (walk);
 
   backtrack ();
   if (propagated < trail.size () && !propagate ()) {
     LOG ("empty clause after root level propagation");
     learn_empty_clause ();
-    STOP_INNER_WALK ();
     return;
   }
 
@@ -1190,7 +1187,6 @@ void Internal::walk () {
     res = warmup ();
   if (res) {
     LOG ("stopping walk due to warmup");
-    STOP_INNER_WALK ();
     return;
   }
   const int64_t ticks =
@@ -1212,7 +1208,6 @@ void Internal::walk () {
            " delta %" PRId64,
            last.walk.ticks, ticks, limit);
   (void) walk_round (limit, false);
-  STOP_INNER_WALK ();
 }
 
 } // namespace CaDiCaL

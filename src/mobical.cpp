@@ -1247,14 +1247,24 @@ private:
   ExtendMap *extendmap = 0;
 
   // ReplayPropagator parameters
+#ifdef LOGGING
   bool logging = false;
+#endif
   size_t current_action = 0;
 
   std::vector<Call *> cb_actions;
 
 public:
   ReplayPropagator (Solver *s, ExtendMap *e, bool l)
-      : solver (s), extendmap (e), logging (l) {}
+      : solver (s), extendmap (e)
+#ifdef LOGGING
+        , logging (l)
+#endif
+  {
+#ifndef LOGGING
+    (void) l;
+#endif
+  }
 
   ~ReplayPropagator () {
     /* Not copied anymore, so they are deleted when the trace is deleted
@@ -1597,7 +1607,6 @@ private:
 
   // Next lemma to add
   size_t add_lemma_idx = 1;
-  size_t propagate_idx = 0;
   size_t external_decide_idx = 0;
 
   // Forced lemme addition (falsified lemma in model)
@@ -2152,7 +2161,10 @@ public:
     if (!s->observed (lit)) {
       // do we want to observe?
       if (add_observed (lit)) {
-        assert (!s->external->current_val (lit));
+        if (s->external->current_val (lit)) {
+          MLOGE ("cb_decide", " 0 (unit " << lit << " fresh observed)");
+          return 0;
+        }
         MLOGE ("cb_decide", " " << lit << " (fresh observed)");
         return lit;
       }
@@ -3836,6 +3848,9 @@ public:
   }
 
   void execute (FILE *trace_file = nullptr) {
+#ifdef NTRACING
+    (void) trace_file;
+#endif
 #ifdef MOBICAL_MEMORY
     memory_bad_alloc = 0;
     memory_bad_size = 0;
