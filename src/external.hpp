@@ -58,19 +58,6 @@ class Terminator;
 class WitnessIterator;
 
 /*------------------------------------------------------------------------*/
-struct TaintedLess {
-  vector<uint32_t> &restore_start;
-
-  TaintedLess (vector<uint32_t> &rs) 
-    : restore_start (rs) {}
-
-  // min-heap
-  bool operator () (unsigned a, unsigned b) const {
-    return restore_start[a] >
-           restore_start[b];
-  }
-};
-/*------------------------------------------------------------------------*/
 
 struct External {
 
@@ -100,18 +87,13 @@ struct External {
 
   bool extended; // Have been extended.
   bool concluded;
-  bool restoring = false; // for conditionally pushing to tainted_lits in internalize
   vector<int> extension; // Solution reconstruction extension stack.
 
-  uint32_t stamp = 0; // Time stamping clauses on the witness stacks.
   vector<vector<int>> witness_stacks; // Reconstruction stacks for each witness.
   vector<int> witness_order; // For restoring the order of clauses in extend.
-  vector<int> tainted_lits; // For initializing the heap
-  vector<uint32_t> restore_start; // Priority for restoration
-  heap<TaintedLess> tainted_heap;
-  vector<bool> processed;
 
   vector<bool> witness; // Literal witness on extension stack.
+  vector<bool> remaining; // For keeping witness up to date.
   vector<bool> tainted; // Literal tainted in adding literals.
 
   vector<bool> ervars; // Variables added through Extended Resolution.
@@ -214,7 +196,6 @@ struct External {
 
   void push_zero_on_extension_stack (int ewit);
 
-  void push_stamp_on_extension_stack (int ewit);
   // TODO: update descriptions
   // Our general version of extension stacks always pushes a set of witness
   // literals (for variable elimination the literal of the eliminated
@@ -229,25 +210,14 @@ struct External {
   void push_binary_clause_on_extension_stack (int64_t id, int wit,
                                               int other);
 
-  
-  // This is a generalization of a shared clause: 
-  // A witness cube is shared among many clauses (e.g. as for an autarky)
-  // All clauses share one time stamp (they are not ordered wrt. each other)
-  struct SharedStack {
-    uint32_t backlinks;
-    uint32_t stamp;
-    vector<int> witness_cube; 
-    vector<int> clause_data; // contains ids and literals of all clauses
-  };
+  vector<int>* create_shared_stack (const vector<int> &iwit_cube);
 
-  SharedStack* create_shared_stack (const vector<int> &iwit_cube);
-
-  void push_shared_clause (SharedStack *ss, Clause *c);
+  void push_shared_clause (vector<int> *ss, Clause *c);
 
   void create_shared_stack_and_push_clause (const vector<int> &iwit_cube, 
     Clause *c);
 
-  void extend_shared_stack (SharedStack *ss);
+  void extend_shared_stack (vector<int> *ss);
 
   // The main 'extend' function which extends an internal assignment to an
   // external assignment using the extension stack (and sets 'extended').
@@ -305,41 +275,20 @@ struct External {
     bool stale = false; // ignore (and freed in restore if at some point links are 0)
     int elits[]; // zero terminated // TODO: maybe just add a size field instead?
   };
-
-
-  void set_restore_start (unsigned ulit, uint32_t timestamp);
-
-  uint32_t get_restore_start (unsigned ulit) const;
-
-  // Add a new entry for ulit with priority timestamp or update an existing one.
-  void schedule (unsigned ulit, uint32_t timestamp);
-
-  // Decide whether a witness needs to be scheduled for restoration triggered
-  // by restoring a clause that contains elit and has time stamp ts.
-  void decide_scheduling (int elit, uint32_t timestamp);
-
+  
   // Restore a clause, which was pushed on the extension stack.
   void restore_clause (const vector<int>::const_iterator &begin,
                        const vector<int>::const_iterator &end,
-                       const int64_t id, const uint32_t timestamp);
-
-  // Restore a shared clause, which has references on the witness stacks
-  void restore_shared_clause (SharedClause *sc);
+                       const int64_t id);
 
   // Restore all clauses on a shared stack
-  void restore_shared_stack (SharedStack *ss, RestoreStats &clauses);
-
-  // Restore clauses on witness_stack[uwit] and on referenced shared stacks
-  void restore_clauses (unsigned uwit, uint32_t ts, RestoreStats &clauses);
-
-  void compact_witness_order ();
+  bool restore_shared_stack (vector<int> *ss, RestoreStats &clauses);
 
   // Propagate tainting end restore tainted clauses
   void propagate_tainting (RestoreStats &clauses);
 
-  // Restore all clauses on all witness stacks
-  void restore_all (RestoreStats &clauses);
-
+  void restore_in_order (RestoreStats &clauses);
+  
   // Entry to restore
   void restore ();
 
