@@ -68,6 +68,7 @@ void External::set_restore_start (unsigned ulit, uint32_t timestamp) {
     restore_start.resize (ulit + 1, 0);
 
   restore_start[ulit] = timestamp;
+  LOG ("set restore_start of %u (unsigned) to %u", ulit, timestamp);
 }
 
 uint32_t External::get_restore_start (unsigned ulit) const {
@@ -76,26 +77,39 @@ uint32_t External::get_restore_start (unsigned ulit) const {
   return restore_start[ulit];
 }
 
-void External::schedule (unsigned ulit, uint32_t timestamp) {
-  const uint32_t old = get_restore_start (ulit);
-  if (!old) {
-    set_restore_start (ulit, timestamp);
-    tainted_heap.push_back (ulit);
-  } else if (timestamp < old) {
-    set_restore_start (ulit, timestamp);
-    tainted_heap.update (ulit);
-  }
-}
-
-void External::decide_scheduling (int elit, uint32_t timestamp) {
+void External::decide_scheduling (int elit, uint32_t clause_ts) {
   const unsigned uwit = elit2ulit (-elit); // wit. that could need restoration
+  LOG ("deciding scheduling for %d (unsigned %u) with time stamp %u", elit, uwit, clause_ts);
 
   if (!u_marked (witness, uwit)) // No clause with corresp. witness
     return;
-  if (u_marked (processed, uwit)) // Already restored
+  if (get_restore_start (uwit)) // is already scheduled correctly
     return;
 
-  schedule (uwit, timestamp + 1);
+  // uwit has never been scheduled and we need to find the actual time stamp at
+  // which we need to restore it
+  vector<int> &stack = witness_stacks[uwit];
+  uint32_t idx = 0;
+  uint32_t event_ts;
+  while (idx < stack.size ()) {
+    assert (!stack[idx]);
+
+    event_ts = timestamp (stack, idx);
+    LOG ("event timestamp is %u", event_ts);
+
+    if (event_ts >= clause_ts)
+      break;
+    idx = next_event (stack, idx);
+  }
+
+  // set priority correctly and push to the heap
+  if (idx == stack.size ())
+    return;
+
+  ws_index[uwit] = idx; //todo make this external scope
+  set_restore_start (uwit, event_ts);
+  tainted_heap.push_back (uwit);
+  restore_cutoffs.push_back ({uwit, idx});
 }
 
 void External::restore_clause (const vector<int>::const_iterator &begin,
@@ -128,41 +142,6 @@ void External::restore_clause (const vector<int>::const_iterator &begin,
     }
   }
   internal->finish_added_clause_with_id (id, true);
-  eclause.clear ();
-  internal->stats.restored_clauses++;
-}
-
-// TODO: Rather do one restore_clause (int * begin, int * end, ...)
-// that both can use 
-void External::restore_shared_clause (SharedClause *sc) {
-  LOG ("restoring external shared clause[%" PRId64 "]", sc->id);
-  
-  assert (eclause.empty ());
-  assert (sc->id);
-  assert (sc->stale);
-
-  for (const int *p = sc->elits; *p; ++p) {
-    eclause.push_back (*p);
-    if (internal->proof && internal->lrat) {
-      const auto &elit = *p;
-      unsigned eidx = (elit > 0) + 2u * (unsigned) abs (elit);
-      assert ((size_t) eidx < ext_units.size ());
-      const int64_t id = ext_units[eidx];
-      bool added = ext_flags[abs (elit)];
-      if (id && !added) {
-        ext_flags[abs (elit)] = true;
-        internal->lrat_chain.push_back (id);
-      }
-    }
-    int ilit = internalize (*p);
-    internal->add_original_lit (ilit), internal->stats.restored_literals++;
-  }
-  if (internal->proof && internal->lrat) {
-    for (const auto &elit : eclause) {
-      ext_flags[abs (elit)] = false;
-    }
-  }
-  internal->finish_added_clause_with_id (sc->id, true);
   eclause.clear ();
   internal->stats.restored_clauses++;
 }
@@ -220,64 +199,6 @@ void External::restore_shared_stack (SharedStack *ss, RestoreStats &clauses) {
   ss->backlinks--;
   if (!ss->backlinks)
     delete ss;
-}
-
-// Compacting the witness_order stack
-void External::compact_witness_order () {
-  
-  VERBOSE (3, "compacting witness order stack of size %zu", 
-           witness_order.size ());
-
-  auto begin = witness_order.begin ();
-  auto end = witness_order.end ();
-  auto q = begin;
-  auto p = witness_order.begin ();
-  while (p != end) {
-    if (*p) { // regular witness entry
-      const int ewit = *p++;
-      const unsigned uwit = elit2ulit (ewit);
-      // Keep the witness entries corresponding to clauses which were skipped
-      // during restoration.  
-      if (u_marked (processed, uwit)) {
-        assert (uwit < restore_start.size ());
-        if (restore_start[uwit]) {
-          restore_start[uwit]--;
-          *q++ = ewit;
-        }
-        continue;    
-      }
-      *q++ = ewit;
-      continue;
-    }
-    // Shared stack entry: 0 pu pl 0
-    //                     ^      
-    assert (p + 3 < end);
-    assert (*(p + 3) == 0);
-    const uintptr_t ptr =
-          (static_cast<uintptr_t> (static_cast<uint32_t> (*(p + 1))) << 32) |
-           static_cast<uint32_t> (*(p + 2));
-    SharedStack *ss = reinterpret_cast<SharedStack *> (ptr);
-    
-    if (!ss->witness_cube.empty ()) {
-      // Live shared stack: keep the complete entry.
-      *q++ = *p++;
-      *q++ = *p++;
-      *q++ = *p++;
-      *q++ = *p++;
-    } else {
-      p += 4;
-    }                      
-  }
-
-  const size_t old_size = witness_order.size ();
-  witness_order.resize (q - begin);
-
-  internal->stats.restore_compacted += (int64_t) old_size - witness_order.size ();
-  internal->stats.restore_seen_bytes += old_size;
-  internal->stats.restore_total_bytes += old_size;
-
-  VERBOSE (3, "finished compacting with size %zu", 
-           witness_order.size ());
 }
 
 void External::restore_clauses (unsigned uwit, uint32_t ts, 
@@ -382,7 +303,7 @@ void External::restore_clauses (unsigned uwit, uint32_t ts,
   // Only if all clauses from this stack have been restored update witness
   if (stack.empty ())
     u_unmark (witness, uwit);
-  u_mark (processed, uwit); 
+  //u_mark (processed, uwit); 
   // We reuse restore_start[uwit] to store the number of retained clauses.
   // I.e. if processed[uwit] then the value of restore_start[uwit] is not a 
   // priority anymore. We need this value to realize compacting witness_order
@@ -390,15 +311,136 @@ void External::restore_clauses (unsigned uwit, uint32_t ts,
   set_restore_start (uwit, skipped); 
 }
 
+/* -------------------------------------------------------------------------- */
+// Get the time stamp of the clause at idx on stack
+uint32_t External::timestamp (const vector<int> &stack, uint32_t idx) {
+  assert (idx < stack.size ());
+  assert (!stack[idx]);
+  const uint32_t ts = static_cast<uint32_t> (stack[idx + 1]);
+  if (ts)
+    return ts;
+  // Shared stack: 0 0 0 pu pl
+  const uintptr_t ptr = (static_cast<uintptr_t> (
+                            static_cast<uint32_t> (stack[idx + 3])) << 32) |
+                            static_cast<uint32_t> (stack[idx + 4]);
+  SharedStack *ss = reinterpret_cast<SharedStack *> (ptr);
+  return ss->stamp;                         
+}
+
+// Returns the index of the next restoration event (next clause or next shared stack reference)
+uint32_t External::next_event (const vector<int> &stack, uint32_t idx) {
+  assert (idx < stack.size ());
+  assert (!stack[idx]);
+
+  if (stack[idx + 1]) { // Regular clause 0 ts idu idl 0 l1 ... lk
+    idx += 5; // first literal
+    while (idx < stack.size () && stack[idx])
+      ++idx;
+    return idx;
+  }
+
+  // Shared stack reference: 0 0 0 ptr_u ptr_l
+  return idx + 5;
+}
+
+uint32_t External::restore_event (vector<int> &stack, uint32_t idx, RestoreStats &clauses) {
+  assert (idx < stack.size ());
+  assert (!stack[idx]);
+
+  const uint32_t clause_stamp = timestamp (stack, idx);
+
+  if (!stack[idx + 1]) { // Shared stack: 0 0 0 pu pl
+    const uintptr_t ptr = (static_cast<uintptr_t> (
+                           static_cast<uint32_t> (stack[idx + 3])) << 32) |
+                           static_cast<uint32_t> (stack[idx + 4]);
+
+    SharedStack *ss = reinterpret_cast<SharedStack *> (ptr);
+
+    restore_shared_stack (ss, clauses);
+
+    return idx + 5;
+  }
+
+  // Regular clause: 0 ts idu idl 0 l1 l2 ... lk
+  const int64_t id =
+      (static_cast<int64_t> (stack[idx + 2]) << 32) |
+       static_cast<uint32_t> (stack[idx + 3]);
+
+  auto p = stack.begin () + idx + 5; // first literal
+  auto end = stack.end ();
+  auto begin = p;
+
+  int satisfied = 0;
+
+  while (p != end && *p) {
+    if (!satisfied && fixed (*p) > 0)
+      satisfied = *p;
+    ++p;
+  }
+ 
+  if (satisfied && !internal->opts.restoreflush) {
+    LOG (begin, p, "forced to not remove %d satisfied", satisfied);
+    satisfied = 0;
+  }
+
+  if (satisfied) {
+    clauses.satisfied++;
+  } else {
+    clauses.restored++;
+    restore_clause (begin, p, id, clause_stamp);
+  }
+
+  return p - stack.begin ();
+}
+/* -------------------------------------------------------------------------- */
+void External::restore_next (RestoreStats &clauses) {
+  const unsigned uwit = tainted_heap.pop_front ();
+  vector<int> &stack = witness_stacks[uwit];
+
+  uint32_t idx = ws_index[uwit];
+  
+  assert (idx < stack.size ());
+  assert (!stack[idx]);
+  assert (timestamp (stack, idx) == get_restore_start (uwit));
+
+  // restore clause starting at idx and continue to do so while the following
+  // clause still has the highest priority
+  while (true) {
+    const uint32_t ts = timestamp (stack, idx);
+
+    idx = restore_event (stack, idx, clauses);
+    ws_index[uwit] = idx;
+
+    if (idx == stack.size ())
+      break;
+
+    const uint32_t next_ts = timestamp (stack, idx);
+
+    if (!tainted_heap.empty () && 
+        next_ts >= get_restore_start (tainted_heap.front ()))
+      break;
+  }
+
+  if (idx != stack.size ()) {
+    const uint32_t next_ts = timestamp (stack, idx);
+    set_restore_start (uwit, next_ts);
+    tainted_heap.push_back (uwit);
+  }
+}
+
 void External::propagate_tainting (RestoreStats &clauses) {
+
   while (!tainted_heap.empty ()) {
-    const unsigned uwit = tainted_heap.pop_front ();
+    const unsigned uwit = tainted_heap.front ();
     const uint32_t ts = get_restore_start (uwit);
     assert (ts);
 
-    LOG ("restoring clauses with witness %u (ulit) and time stamp >= %u", uwit, ts);
-    restore_clauses (uwit, ts, clauses);
+    //restore_clauses (uwit, ts, clauses);
+    restore_next (clauses);
   }
+
+  for (const auto &cutoff : restore_cutoffs)
+    witness_stacks[cutoff.uwit].resize (cutoff.idx);
 }
 
 void External::restore_all (RestoreStats &clauses) {
@@ -410,7 +452,6 @@ void External::restore_all (RestoreStats &clauses) {
     restore_clauses (uwit, 0, clauses);
   }
   witness.clear (); // There should be no more clauses left on the stacks
-  witness_order.clear ();
 }
 
 void External::restore () {
@@ -441,43 +482,53 @@ void External::restore () {
     restore_all (clauses);
   } 
   else if (!tainted_lits.empty ()) {
+    assert (ws_index.empty ());
+    assert (restore_cutoffs.empty ());
+    ws_index.resize (witness_stacks.size ());
     for (auto elit : tainted_lits) {
       const unsigned uwit = elit2ulit (-elit);
+      LOG ("tainted literal %d (external) (%u unsigned)", elit, uwit);
       vector<int> &stack = witness_stacks[uwit];
-      
-      if (stack.empty ())
+      LOG (stack, "witness_stack[%u]: ", uwit);
+      if (stack.empty ()) // TODO: That should not be possible
         continue;
 
       auto p = stack.begin ();
       // Get time stamp of first clause on the corresp. witness stack
       // 0 ts idu idl 0 l1 l2 ...
-      uint32_t ts = static_cast<uint32_t> (stack[1]);
       while (p != stack.end ()) {
         assert (!*p);
-        ts = static_cast<uint32_t> (*(p + 1));
-        if (ts) { // regular entry
+
+        if (*(p + 1)) { // regular clause
           break;
         }
+        LOG ("shared clause detected.");
         // Shared stack: 0 0 0 pu pl 0
         const uintptr_t ptr =
             (static_cast<uintptr_t> (static_cast<uint32_t> (*(p + 3))) << 32) |
                                      static_cast<uint32_t> (*(p + 4));
 
         SharedStack *ss = reinterpret_cast<SharedStack *> (ptr);
-
-        if (!ss->witness_cube.empty ()) {
-          ts = ss->stamp;
+        
+        if (!ss->witness_cube.empty ())
           break;
-        }
-
+        // TODO: can this happen? 
         // Stale shared stack. Just skip over its witness-stack representation.
         p += 5;
       }
       // Schedule with priority ts
       if (p != stack.end ()) {
+        const uint32_t idx = p - stack.begin ();
+        const uint32_t ts = timestamp (stack, idx);
+        LOG ("restoration event to be scheduled begins at idx %u with time stamp %u", idx, ts);
         assert (ts);
         assert (!get_restore_start (uwit));
-        schedule (uwit, ts);
+        ws_index[uwit] = idx;
+        
+        set_restore_start (uwit, ts);
+        tainted_heap.push_back (uwit);
+        restore_cutoffs.push_back ({uwit, idx});
+        LOG ("pushed to heap...");
       }      
     }
     tainted_lits.clear ();
@@ -492,11 +543,9 @@ void External::restore () {
     while (!witness.empty () && !witness.back ())
       witness.pop_back ();
 
-    if (internal->opts.restorecompact) 
-      compact_witness_order ();
-
-    restore_start.clear();
-    processed.clear ();
+    restore_start.clear ();
+    ws_index.clear ();
+    restore_cutoffs.clear ();
     assert (tainted_heap.empty ());
 
     internal->stats.restore_total_bytes += clauses.totalbytes;
