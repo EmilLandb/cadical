@@ -97,6 +97,7 @@ void External::restore_clause (const vector<int>::const_iterator &begin,
 
 bool External::restore_shared_stack (vector<int> *ss, RestoreStats &clauses) {
   // w1 w2 ... wk C1 C2 ... Cm (clauses are represented as usual)
+  clauses.totalbytes += ss->size () * sizeof (int);
   auto p = ss->begin ();
   bool restore_ss = false;
   while (*p) {
@@ -116,8 +117,8 @@ bool External::restore_shared_stack (vector<int> *ss, RestoreStats &clauses) {
     }
     return false;
   }
-
   // restore all clauses in order
+  clauses.seenbytes += ss->size () * sizeof (int);
   auto end = ss->end ();
   while (p != end) {
     // p is on first '0' of next clause to be restored
@@ -162,19 +163,21 @@ void External::restore_in_order (RestoreStats &clauses) {
   vector<bool> restoring (wit_size);
   // To decide whether a literal is still used as a witness 
   remaining.resize (wit_size, false); 
-
+  
   // Every stack that has some entry should have a mark in witness.
   // There may also be only shared stacks with a given witness in their cubes so
   // we should not check '=='
   LOG ("witness.size () is %zu", wit_size);
   LOG ("witness_stacks.size () is %zu", witness_stacks.size ());
   //assert (witness.size () >= witness_stacks.size ());
-
+  clauses.seenbytes += witness_order.size () * sizeof (int);
   auto begin = witness_order.begin ();
   auto end = witness_order.end ();
   auto p = begin;
   auto q = p;
-
+  /* ------------------------------------------------------------------------ */
+  //size_t first_tainted_position = 0; // TODO: REMOVE
+  /* ------------------------------------------------------------------------ */
   while (p != end) {
     const int ewit = *p;
     
@@ -182,8 +185,13 @@ void External::restore_in_order (RestoreStats &clauses) {
       const unsigned uwit = elit2ulit (ewit);
       size_t idx = ws_index[uwit]; 
       if (marked (tainted, -ewit) || internal->opts.restoreall == 2) { // need restoration
+        //if (!first_tainted_position) // TODO: REMOVE
+        // first_tainted_position = p - begin;
         auto &stack = witness_stacks[uwit];
         if (!marked (restoring, ewit)) { // possibly need index update
+          // First time visiting this stack. 
+          // We will definitely scan the full stack during restore
+          clauses.seenbytes += stack.size () * sizeof (int);
           assert (!idx);
           while (skipped[uwit]) {
             // proceed a clause in witness_stack[uwit]
@@ -264,7 +272,16 @@ void External::restore_in_order (RestoreStats &clauses) {
       *q++ = *p++;
     }
   }
-
+  /*
+  if (!internal->opts.log) { // TODO: REMOVE THIS
+    internal->opts.log = true;
+    LOG (witness_order, "witness_order: ");
+    LOG ("first_tainted_at: %zu", first_tainted_position);
+    LOG ("wo size before: %zu", witness_order.size ());
+    LOG ("wo size after:  %zu", q - witness_order.begin ());
+    internal->opts.log = false;
+  }
+  */
   witness_order.resize (q - witness_order.begin ());
   // Resize all witness stacks that had restorations and update 'witness' marks.
   // 'skipped[i]' is the first position in the stack that was restored.
@@ -309,7 +326,6 @@ void External::restore () {
 
   if (!tainted.empty () || internal->opts.restoreall == 2) {
     
-    // TODO: this does not account for shared stack sizes...
     for (const auto &s : witness_stacks)
       clauses.totalbytes += s.size () * sizeof (int);
     
