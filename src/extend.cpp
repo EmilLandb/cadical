@@ -17,6 +17,8 @@ void External::push_id_on_extension_stack (int ewit, int64_t id) {
   const uint32_t lower_bits = (id & (((int64_t) 1 << 32) - 1));
   const unsigned uwit = elit2ulit (ewit);
   assert (uwit < witness_stacks.size ());
+  //if (uwit >= witness_stacks.size ())
+  //  witness_stacks.resize (uwit + 1); // the witness bitset is resized in mark
   witness_stacks[uwit].push_back (higher_bits);
   witness_stacks[uwit].push_back (lower_bits);
   LOG ("pushing id %" PRIu64 " = %d + %d on witness_stacks[%u] (external %d)", 
@@ -38,11 +40,12 @@ void External::push_clause_literal_on_extension_stack (int ewit, int ilit) {
   assert (elit);
   const unsigned uwit = elit2ulit (ewit);
   assert (uwit < witness_stacks.size ());
+  //if (uwit >= witness_stacks.size ())
+  //  witness_stacks.resize (uwit + 1); // the witness bitset is resized in mark
   witness_stacks[uwit].push_back (elit);
   LOG ("pushing clause literal %d on witness_stacks[%u] (external %d) (internal %d)", elit, 
        uwit, ewit, ilit);
 }
-
 
 // The extension stack allows to reconstruct a satisfying assignment for the
 // original formula after removing eliminated clauses.  This was pioneered
@@ -131,14 +134,6 @@ External::SharedStack* External::create_shared_stack (const vector<int> &iwit_cu
 
     ss->backlinks++;
   }
-  /*
-  // push a reference to witness_order
-  // 0 p_u p_l 0
-  witness_order.push_back (0);
-  witness_order.push_back (upper);
-  witness_order.push_back (lower);
-  witness_order.push_back (0);
-  */
   return ss;
 }
 
@@ -438,7 +433,10 @@ void External::extend () {
          "flipped %" PRId64 " literals during extension", flipped);
   extended = true;
   LOG ("extended");
+  STOP (extend);
 }
+
+
 /* TODO: implement later 
 bool External::traverse_shared_stack_backward (WitnessIterator &it) {
   if (internal->unsat)
@@ -448,7 +446,6 @@ bool External::traverse_shared_stack_backward (WitnessIterator &it) {
 
 // TODO: for now just for regular events no shared stacks
 bool External::traverse_witnesses_backward (WitnessIterator &it) {
-  PROFILE_SCOPE (traversewitness);
   assert (ws_index.empty ());
   assert (restore_start.empty ());
 
@@ -530,6 +527,7 @@ bool External::traverse_witnesses_backward (WitnessIterator &it) {
 
   return true;
 }
+
 
 // TODO: Update to work with new data structure
 // Here we have a bigger problem currently: We always have a suffix of 

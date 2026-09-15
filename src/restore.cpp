@@ -589,4 +589,5 @@ void External::restore () {
 #endif
   tainted.clear ();
 }
+
 } // namespace CaDiCaL
