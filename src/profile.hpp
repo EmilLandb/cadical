@@ -104,6 +104,7 @@ struct Internal;
   PROFILE (subsume, 2) \
   PROFILE (ternary, 2) \
   PROFILE (transred, 3) \
+  PROFILE (traversewitness, 3) \
   PROFILE (unstable, 2) \
   PROFILE (vivify, 2) \
   PROFILE (walk, 2) \

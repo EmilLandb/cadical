@@ -455,7 +455,7 @@ void External::restore_all (RestoreStats &clauses) {
 }
 
 void External::restore () {
-  START (restore);
+  PROFILE_SCOPE (restore);
   restoring = true;
   internal->stats.restorations++;
 
@@ -588,6 +588,5 @@ void External::restore () {
   }
 #endif
   tainted.clear ();
-  STOP (restore);
 }
 } // namespace CaDiCaL

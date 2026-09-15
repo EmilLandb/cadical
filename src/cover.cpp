@@ -412,7 +412,6 @@ bool Internal::cover_clause (Clause *c, Coveror &coveror) {
           clause_ewit = externalize (other); // Now update the witness after the previous clause is finished
           last_id = ++clause_id;
           external->push_zero_on_extension_stack (clause_ewit);
-          external->witness_order.push_back (clause_ewit);
           //external->push_witness_literal_on_extension_stack (other);
           //external->push_zero_on_extension_stack (externalize (other));
           external->push_stamp_on_extension_stack (clause_ewit);

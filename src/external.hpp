@@ -118,7 +118,6 @@ struct External {
 
   uint32_t stamp = 0; // Time stamping clauses on the witness stacks.
   vector<vector<int>> witness_stacks; // Reconstruction stacks for each witness.
-  vector<int> witness_order; // For restoring the order of clauses in extend.
   vector<int> tainted_lits; // For initializing the heap
   vector<uint32_t> restore_start; // Priority for restoration
   vector<uint32_t> ws_index; // Indices into the witness stacks
