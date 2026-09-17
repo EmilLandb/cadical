@@ -63,18 +63,18 @@ static void u_unmark (vector<bool> &map, unsigned ulit) {
 }
 /*------------------------------------------------------------------------*/  
 
-void External::set_restore_start (unsigned ulit, uint32_t timestamp) {
-  if (restore_start.size () <= ulit)
-    restore_start.resize (ulit + 1, 0);
+void External::set_priority (unsigned ulit, uint32_t timestamp) {
+  if (priority.size () <= ulit)
+    priority.resize (ulit + 1, 0);
 
-  restore_start[ulit] = timestamp;
-  LOG ("set restore_start of %u (unsigned) to %u", ulit, timestamp);
+  priority[ulit] = timestamp;
+  LOG ("set priority of %u (unsigned) to %u", ulit, timestamp);
 }
 
-uint32_t External::get_restore_start (unsigned ulit) const {
-  if (restore_start.size () <= ulit)
+uint32_t External::get_priority (unsigned ulit) const {
+  if (priority.size () <= ulit)
     return 0;
-  return restore_start[ulit];
+  return priority[ulit];
 }
 
 void External::decide_scheduling (int elit, uint32_t clause_ts) {
@@ -83,7 +83,7 @@ void External::decide_scheduling (int elit, uint32_t clause_ts) {
 
   if (!u_marked (witness, uwit)) // No clause with corresp. witness
     return;
-  if (get_restore_start (uwit)) // is already scheduled correctly
+  if (get_priority (uwit)) // is already scheduled correctly
     return;
 
   // uwit has never been scheduled and we need to find the actual time stamp at
@@ -107,8 +107,8 @@ void External::decide_scheduling (int elit, uint32_t clause_ts) {
     return;
 
   ws_index[uwit] = idx; //todo make this external scope
-  set_restore_start (uwit, event_ts);
-  tainted_heap.push_back (uwit);
+  set_priority (uwit, event_ts);
+  tainted_heap.push (uwit);
   restore_cutoffs.push_back ({uwit, idx});
 }
 
@@ -304,11 +304,11 @@ void External::restore_clauses (unsigned uwit, uint32_t ts,
   if (stack.empty ())
     u_unmark (witness, uwit);
   //u_mark (processed, uwit); 
-  // We reuse restore_start[uwit] to store the number of retained clauses.
-  // I.e. if processed[uwit] then the value of restore_start[uwit] is not a 
+  // We reuse priority[uwit] to store the number of retained clauses.
+  // I.e. if processed[uwit] then the value of priority[uwit] is not a 
   // priority anymore. We need this value to realize compacting witness_order
   // correctly.
-  set_restore_start (uwit, skipped); 
+  set_priority (uwit, skipped); 
 }
 
 /* -------------------------------------------------------------------------- */
@@ -394,14 +394,15 @@ uint32_t External::restore_event (vector<int> &stack, uint32_t idx, RestoreStats
 }
 /* -------------------------------------------------------------------------- */
 void External::restore_next (RestoreStats &clauses) {
-  const unsigned uwit = tainted_heap.pop_front ();
+  const unsigned uwit = tainted_heap.top ();
+  tainted_heap.pop ();
   vector<int> &stack = witness_stacks[uwit];
 
   uint32_t idx = ws_index[uwit];
   
   assert (idx < stack.size ());
   assert (!stack[idx]);
-  assert (timestamp (stack, idx) == get_restore_start (uwit));
+  assert (timestamp (stack, idx) == get_priority (uwit));
 
   // restore clause starting at idx and continue to do so while the following
   // clause still has the highest priority
@@ -417,22 +418,22 @@ void External::restore_next (RestoreStats &clauses) {
     const uint32_t next_ts = timestamp (stack, idx);
 
     if (!tainted_heap.empty () && 
-        next_ts >= get_restore_start (tainted_heap.front ()))
+        next_ts >= get_priority (tainted_heap.top ()))
       break;
   }
 
   if (idx != stack.size ()) {
     const uint32_t next_ts = timestamp (stack, idx);
-    set_restore_start (uwit, next_ts);
-    tainted_heap.push_back (uwit);
+    set_priority (uwit, next_ts);
+    tainted_heap.push (uwit);
   }
 }
 
 void External::propagate_tainting (RestoreStats &clauses) {
 
   while (!tainted_heap.empty ()) {
-    const unsigned uwit = tainted_heap.front ();
-    const uint32_t ts = get_restore_start (uwit);
+    const unsigned uwit = tainted_heap.top ();
+    const uint32_t ts = get_priority (uwit);
     assert (ts);
 
     //restore_clauses (uwit, ts, clauses);
@@ -522,11 +523,11 @@ void External::restore () {
         const uint32_t ts = timestamp (stack, idx);
         LOG ("restoration event to be scheduled begins at idx %u with time stamp %u", idx, ts);
         assert (ts);
-        assert (!get_restore_start (uwit));
+        assert (!get_priority (uwit));
         ws_index[uwit] = idx;
         
-        set_restore_start (uwit, ts);
-        tainted_heap.push_back (uwit);
+        set_priority (uwit, ts);
+        tainted_heap.push (uwit);
         restore_cutoffs.push_back ({uwit, idx});
         LOG ("pushed to heap...");
       }      
@@ -543,7 +544,7 @@ void External::restore () {
     while (!witness.empty () && !witness.back ())
       witness.pop_back ();
 
-    restore_start.clear ();
+    priority.clear ();
     ws_index.clear ();
     restore_cutoffs.clear ();
     assert (tainted_heap.empty ());
