@@ -440,8 +440,13 @@ void External::propagate_tainting (RestoreStats &clauses) {
     restore_next (clauses);
   }
 
-  for (const auto &cutoff : restore_cutoffs)
-    witness_stacks[cutoff.uwit].resize (cutoff.idx);
+  for (const auto &cutoff : restore_cutoffs) {
+    auto &stack = witness_stacks[cutoff.uwit];
+    stack.resize (cutoff.idx);
+    
+    if (stack.empty ())
+      u_unmark (witness, cutoff.uwit);
+  }
 }
 
 void External::restore_all (RestoreStats &clauses) {
@@ -477,6 +482,15 @@ void External::restore () {
            "starting with %u tainted literals %.0f%%", numtainted,
            percent (numtainted, 2u * max_var));
   }
+  { // TODO: remove this again after evaluation
+    internal->stats.restore_ws_size += witness_stacks.size ();
+    for (const auto &stack : witness_stacks)
+      if (stack.size ()) {
+        internal->stats.restore_nstacks++;
+        internal->stats.restore_nints += stack.size ();
+        internal->stats.restore_caps += stack.capacity ();
+      }
+  }
 #endif
 
   if (internal->opts.restoreall == 2) {
@@ -485,10 +499,13 @@ void External::restore () {
   else if (!tainted_lits.empty ()) {
     assert (ws_index.empty ());
     assert (restore_cutoffs.empty ());
+    assert (priority.empty ());
     ws_index.resize (witness_stacks.size ());
     for (auto elit : tainted_lits) {
       const unsigned uwit = elit2ulit (-elit);
       LOG ("tainted literal %d (external) (%u unsigned)", elit, uwit);
+      //if (uwit >= witness_stacks.size ())
+      //  continue;
       vector<int> &stack = witness_stacks[uwit];
       LOG (stack, "witness_stack[%u]: ", uwit);
       if (stack.empty ()) // TODO: That should not be possible
@@ -533,6 +550,7 @@ void External::restore () {
       }      
     }
     tainted_lits.clear ();
+    tainted_lits.shrink_to_fit ();
 
     // TODO: this does not account for shared stack sizes...
     for (const auto &s : witness_stacks)
@@ -543,16 +561,27 @@ void External::restore () {
     // "resize" witness vector  
     while (!witness.empty () && !witness.back ())
       witness.pop_back ();
-
-    priority.clear ();
+    
+    // 'resize' witness stacks
+    while (!witness_stacks.empty () && witness_stacks.back ().empty ())
+      witness_stacks.pop_back ();
+    witness_stacks.shrink_to_fit ();
+    
     ws_index.clear ();
+    ws_index.shrink_to_fit ();
     restore_cutoffs.clear ();
-    assert (tainted_heap.empty ());
+    restore_cutoffs.shrink_to_fit ();
+
+    assert (tainted_heap.empty ());    
+    //tainted_heap = RestoreHeap(PriorityLess(priority));
 
     internal->stats.restore_total_bytes += clauses.totalbytes;
     internal->stats.restore_seen_bytes += clauses.seenbytes;
     restoring = false;
   }
+
+  priority.clear();
+  priority.shrink_to_fit ();
 
 #ifndef QUIET
   if (clauses.satisfied)
@@ -589,6 +618,7 @@ void External::restore () {
   }
 #endif
   tainted.clear ();
-}
+  tainted.shrink_to_fit ();
+} 
 
 } // namespace CaDiCaL

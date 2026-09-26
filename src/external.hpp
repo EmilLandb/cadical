@@ -60,22 +60,22 @@ class WitnessIterator;
 
 /*------------------------------------------------------------------------*/
 struct PriorityLess {
-  vector<uint32_t> &priority;
+  vector<uint32_t> &prio;
 
-  PriorityLess (vector<uint32_t> &p) : priority (p) {}
+  PriorityLess (vector<uint32_t> &p) : prio (p) {}
 
   bool operator () (unsigned a, unsigned b) const {
-    return priority[a] > priority[b];
+    return prio[a] > prio[b];
   }
 };
 
 struct PriorityGreater {
-  vector<uint32_t> &priority;
+  vector<uint32_t> &prio;
 
-  PriorityGreater (vector<uint32_t> &p) : priority (p) {}
+  PriorityGreater (vector<uint32_t> &p) : prio (p) {}
 
   bool operator () (unsigned a, unsigned b) const {
-    return priority[a] < priority[b];
+    return prio[a] < prio[b];
   }
 };
 
@@ -149,10 +149,12 @@ struct External {
   vector<uint32_t> ws_index; // Indices into the witness stacks
 
   RestoreHeap tainted_heap;
+
   struct RestoreCutoff {
     unsigned uwit;
     uint32_t idx;
   };
+  
   vector<RestoreCutoff> restore_cutoffs;
 
   vector<bool> witness; // Literal witness on extension stack.

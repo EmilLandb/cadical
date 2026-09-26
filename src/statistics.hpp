@@ -255,6 +255,10 @@
   STATISTIC (restart_levels,         2, relative, "per", restart) \
   STATISTIC (restart_stable,         2, percent, "%", restart) \
   STATISTIC (restorations,           1, relative, "per", searches) \
+  STATISTIC (restore_ws_size,        0, relative, "per", restorations) \
+  STATISTIC (restore_nstacks,        0, percent, "%", restore_ws_size) \
+  STATISTIC (restore_nints,          0, relative, "per", restore_nstacks) \
+  STATISTIC (restore_caps,           0, relative, "per", restore_nstacks) \
   STATISTIC (restore_compacted,      0, NOTHING, 0, 0) \
   STATISTIC (restore_seen_bytes,     0, percent, "%", restore_total_bytes) \
   STATISTIC (restore_total_bytes,    0, NOTHING, 0, 0) \

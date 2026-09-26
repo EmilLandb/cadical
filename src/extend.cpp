@@ -256,7 +256,9 @@ void External::extend_shared_stack (SharedStack *ss, unsigned uwit, ExtendStats 
   for (const auto &ewit : witness_cube) {
     // check if the shared stack was already extended
     const unsigned other_uwit = elit2ulit (ewit);
-    if (other_uwit != uwit && priority[other_uwit] <= ss->stamp) { 
+    if (other_uwit != uwit && 
+        priority[other_uwit] &&
+        priority[other_uwit] <= ss->stamp) { 
       satisfied = true;
       break;
     }
@@ -503,7 +505,7 @@ bool External::traverse_shared_stack_forward (WitnessIterator &it, SharedStack *
   auto end = ss->clause_data.end ();
   while (p != end) {
     clause.clear ();
-    // p points to the first 0: 0 ts idu idl 0 09379085040073907921, 09683240710050256023, 02361324183427450270
+    // p points to the first 0: 0 ts idu idl 0 
     const int64_t id = ((int64_t) *(p + 2) << 32) +
                       static_cast<int64_t> (*(p + 3));
     assert (id);
@@ -525,7 +527,9 @@ bool External::traverse_witnesses_backward (WitnessIterator &it) {
     return true;
   vector<int> clause, witness;
 
-  heap<ExtendNewer> traverse_heap ((ExtendNewer (priority)));
+  ExtendHeap traverse_heap {
+    PriorityGreater (priority)
+  };
 
   ws_index.resize (witness_stacks.size ());
   priority.resize (witness_stacks.size ());
@@ -540,11 +544,12 @@ bool External::traverse_witnesses_backward (WitnessIterator &it) {
     assert (ts);
 
     priority[uwit] = ts;
-    traverse_heap.push_back (uwit);
+    traverse_heap.push (uwit);
   }
 
   while (!traverse_heap.empty ()) {
-    const unsigned uwit = traverse_heap.pop_front ();
+    const unsigned uwit = traverse_heap.top ();
+    traverse_heap.pop ();
     vector<int> &stack = witness_stacks[uwit];
     uint32_t idx = ws_index[uwit];
     uint32_t ts = 0;
@@ -562,11 +567,14 @@ bool External::traverse_witnesses_backward (WitnessIterator &it) {
         ts = ss->stamp;
 
         if (!traverse_heap.empty () &&
-            ts < priority[traverse_heap.front ()])
+            ts < priority[traverse_heap.top ()])
           break;
 
-        if (!traverse_shared_stack_backward (it, ss, uwit))
+        if (!traverse_shared_stack_backward (it, ss, uwit)) {
+          priority.clear ();
+          ws_index.clear ();
           return false;
+        }
 
         idx -= 5;
       } else {
@@ -582,7 +590,7 @@ bool External::traverse_witnesses_backward (WitnessIterator &it) {
         ts = static_cast<uint32_t> (stack[p - 3]);
 
         if (!traverse_heap.empty () &&
-            ts < priority[traverse_heap.front ()])
+            ts < priority[traverse_heap.top ()])
           break;
       
         witness.clear ();
@@ -600,15 +608,18 @@ bool External::traverse_witnesses_backward (WitnessIterator &it) {
 
         reverse (clause.begin (), clause.end ());
 
-        if (!it.witness (clause, witness, id))
+        if (!it.witness (clause, witness, id)) {
+          ws_index.clear ();
+          priority.clear ();
           return false;
+        }
       }                          
     }
     ws_index[uwit] = idx;
 
     if (idx) {
       set_priority (uwit, ts);
-      traverse_heap.push_back (uwit);
+      traverse_heap.push (uwit);
     }
   }
   ws_index.clear ();
@@ -623,9 +634,12 @@ bool External::traverse_witnesses_forward (WitnessIterator &it) {
 
   if (internal->unsat)
     return true;
+  
   vector<int> clause, witness;
 
-  heap<TaintedLess> traverse_heap ((TaintedLess (priority)));
+  RestoreHeap traverse_heap {
+    PriorityLess (priority)
+  };
 
   ws_index.resize (witness_stacks.size ());
   priority.resize (witness_stacks.size ());
@@ -639,11 +653,12 @@ bool External::traverse_witnesses_forward (WitnessIterator &it) {
     assert (ts);
 
     priority[uwit] = ts;
-    traverse_heap.push_back (uwit);
+    traverse_heap.push (uwit);
   }
 
   while (!traverse_heap.empty ()) {
-    const unsigned uwit = traverse_heap.pop_front ();
+    const unsigned uwit = traverse_heap.top ();
+    traverse_heap.pop ();
     vector<int> &stack = witness_stacks[uwit];
     uint32_t idx = ws_index[uwit];
     uint32_t ts = 0;
@@ -662,17 +677,20 @@ bool External::traverse_witnesses_forward (WitnessIterator &it) {
         ts = ss->stamp;
 
         if (!traverse_heap.empty () &&
-            ts > priority[traverse_heap.front ()])
+            ts > priority[traverse_heap.top ()])
           break;
 
-        if (!traverse_shared_stack_forward (it, ss, uwit))
+        if (!traverse_shared_stack_forward (it, ss, uwit)) {
+          ws_index.clear ();
+          priority.clear ();
           return false;
+        }
 
         idx += 5;
       } else { // 0 ts idu idl 0 l1 ... lk
         ts = static_cast<uint32_t> (stack[idx + 1]);
         if (!traverse_heap.empty () &&
-            ts > priority[traverse_heap.front ()])
+            ts > priority[traverse_heap.top ()])
           break;
 
         const int64_t id = ((int64_t) stack[idx + 2] << 32) +
@@ -690,15 +708,18 @@ bool External::traverse_witnesses_forward (WitnessIterator &it) {
         const int ewit = ((int) (uwit >> 1) + 1 ^ -sign) + sign;
         witness.push_back (ewit);
 
-        if (!it.witness (clause, witness, id))
+        if (!it.witness (clause, witness, id)) {
+          ws_index.clear ();
+          priority.clear ();
           return false;
+        }
       }
     }
     ws_index[uwit] = idx;
 
     if (idx != stack.size ()) {
       set_priority (uwit, ts);
-      traverse_heap.push_back (uwit);
+      traverse_heap.push (uwit);
     }
   }
   ws_index.clear ();
