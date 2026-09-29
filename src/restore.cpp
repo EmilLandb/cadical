@@ -177,7 +177,8 @@ void External::restore_clause_c (const int *begin, const int* end,
     }
     int ilit = internalize (ewit);
     internal->add_original_lit (ilit), internal->stats.restored_literals++;
-    // no need to schedule here since ewit is for sure tainted.
+    if (internal->opts.restoreall != 2)
+      decide_scheduling_c (ewit, timestamp);
   }
 
   for (auto p = begin; p != end; p++) {
