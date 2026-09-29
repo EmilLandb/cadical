@@ -5,6 +5,7 @@
 
 #include "range.hpp"
 #include "util.hpp"
+#include "witness_stack.hpp"
 #include <climits>
 #include <cstdint>
 #include <cstdio>
@@ -144,6 +145,7 @@ struct External {
 
   uint32_t stamp = 0; // Time stamping clauses on the witness stacks.
   vector<vector<int>> witness_stacks; // Reconstruction stacks for each witness.
+  vector<WitnessStack> witness_stacks2;
   vector<int> tainted_lits; // For initializing the heap
   vector<uint32_t> priority; // Priority for restoration
   vector<uint32_t> ws_index; // Indices into the witness stacks
@@ -275,7 +277,10 @@ struct External {
   void push_binary_clause_on_extension_stack (int64_t id, int wit,
                                               int other);
 
-  
+  /* ------------------------------------------------------------------------ */
+  //void push_clause_on_extension_stack_c (int wit, Clause *c);
+  //void push_binary_clause_on_extension_stack_c (int64_t id, int wit, int other);
+  /* ------------------------------------------------------------------------ */
   // This is a generalization of a shared clause: 
   // A witness cube is shared among many clauses (e.g. as for an autarky)
   // All clauses share one time stamp (they are not ordered)
@@ -303,7 +308,9 @@ struct External {
   // external assignment using the extension stack (and sets 'extended').
   //
   void extend_next (unsigned uwit, ExtendHeap &extend_heap, ExtendStats &stats);
+  void extend_next_c (unsigned uwit, ExtendHeap &extend_heap, ExtendStats &stats);
   void extend ();
+  //void extend_c ();
   void conclude_sat ();
 
   /*----------------------------------------------------------------------*/
@@ -355,11 +362,15 @@ struct External {
   // Decide whether a witness needs to be scheduled for restoration triggered
   // by restoring a clause that contains elit and has time stamp ts.
   void decide_scheduling (int elit, uint32_t clause_ts);
+  void decide_scheduling_c (int elit, uint32_t clause_ts);
 
   // Restore a clause, which was pushed on the extension stack.
   void restore_clause (const vector<int>::const_iterator &begin,
                        const vector<int>::const_iterator &end,
                        const int64_t id, const uint32_t timestamp);
+  void restore_clause_c (const int *begin, const int* end,
+                         const int64_t id, const uint32_t timestamp,
+                         const bool wit_embedded, const int ewit);
 
   // Restore all clauses on a shared stack
   void restore_shared_stack (SharedStack *ss, RestoreStats &clauses);
@@ -368,23 +379,30 @@ struct External {
   void restore_clauses (unsigned uwit, uint32_t ts, RestoreStats &clauses);
 
   uint32_t timestamp (const vector<int> &stack, uint32_t idx);
+  uint32_t timestamp_c (int *p);
 
   uint32_t r_timestamp (const vector<int> &stack, uint32_t idx);
+  uint32_t r_timestamp_c (int *p);
 
   uint32_t next_event (const vector<int> &stack, uint32_t idx);
+  int* next_event_c (int* p);
 
   uint32_t restore_event (vector<int> &stack, uint32_t idx, RestoreStats &clauses);
+  int* restore_event_c (int *p, unsigned uwit, RestoreStats &clauses);
 
   void restore_next (RestoreStats &clauses);
+  void restore_next_c (RestoreStats &clauses);
 
   // Propagate tainting end restore tainted clauses
   void propagate_tainting (RestoreStats &clauses);
+  void propagate_tainting_c (RestoreStats &clauses);
 
   // Restore all clauses on all witness stacks
   void restore_all (RestoreStats &clauses);
 
   // Entry to restore
   void restore ();
+  //void restore_c ();
 
   bool is_witness (int);
   /*----------------------------------------------------------------------*/

@@ -46,6 +46,11 @@ namespace CaDiCaL {
 // See our SAT'19 paper [FazekasBiereScholl-SAT'19] for more details.
 
 /*------------------------------------------------------------------------*/
+static constexpr uint32_t CLAUSE_SMALL = 1u << 31;
+static constexpr uint32_t EMBEDDED     = 1u << 30;
+static constexpr uint32_t ID_LONG     = 1u << 29;
+static constexpr uint32_t SIZE_MASK   = (1u << 29) - 1;
+/*------------------------------------------------------------------------*/
 // Unsigned version of marked, mark and unmark
 static bool u_marked (const vector<bool> &map, unsigned ulit) {
   return ulit < map.size () ? map[ulit] : false;
@@ -75,6 +80,42 @@ uint32_t External::get_priority (unsigned ulit) const {
   if (priority.size () <= ulit)
     return 0;
   return priority[ulit];
+}
+
+void External::decide_scheduling_c (int elit, uint32_t clause_ts) {
+  const unsigned uwit = elit2ulit (-elit); // wit. that could need restoration
+  LOG ("deciding scheduling for %d (unsigned %u) with time stamp %u", elit, uwit, clause_ts);
+
+  if (!u_marked (witness, uwit)) // No clause with corresp. witness
+    return;
+  if (get_priority (uwit)) // is already scheduled
+    return;
+
+  // uwit has never been scheduled and we need to find the actual time stamp at
+  // which we need to restore it
+  WitnessStack &stack = witness_stacks2[uwit];
+  auto p = stack.begin ();
+  uint32_t event_ts;
+  LOG (stack.begin (), (stack.end () - stack.begin ()), "stack: ");
+  while (p != stack.end ()) {
+    LOG ("p value: %d", *p);
+    event_ts = timestamp_c (p);
+    LOG ("event timestamp is %u", event_ts);
+
+    if (event_ts >= clause_ts)
+      break;
+
+    p = next_event_c (p);
+  }
+  
+  if (p == stack.end ())
+    return;
+
+  const uint32_t idx = p - stack.begin ();
+  ws_index[uwit] = idx;
+  set_priority (uwit, event_ts);
+  tainted_heap.push (uwit);
+  restore_cutoffs.push_back ({uwit, idx});
 }
 
 void External::decide_scheduling (int elit, uint32_t clause_ts) {
@@ -110,6 +151,62 @@ void External::decide_scheduling (int elit, uint32_t clause_ts) {
   set_priority (uwit, event_ts);
   tainted_heap.push (uwit);
   restore_cutoffs.push_back ({uwit, idx});
+}
+
+// NEW VERSION
+void External::restore_clause_c (const int *begin, const int* end, 
+                                 const int64_t id, const uint32_t timestamp, 
+                                 const bool wit_embedded, const int ewit) {
+  LOG (begin, static_cast<unsigned> (end - begin), "restoring external clause[%" PRId64 "]", id);
+  
+  assert (eclause.empty ());
+  assert (id);
+  assert (!wit_embedded || ewit);
+  if (wit_embedded) {
+    LOG ("adding witness (external %d) back to the clause", ewit);
+    eclause.push_back (ewit);
+    if (internal->proof && internal->lrat) {
+      unsigned eidx = (ewit > 0) + 2u * (unsigned) abs (ewit);
+      assert ((size_t) eidx < ext_units.size ());
+      const int64_t id = ext_units[eidx];
+      bool added = ext_flags[abs (ewit)];
+      if (id && !added) {
+        ext_flags[abs (ewit)] = true;
+        internal->lrat_chain.push_back (id);
+      }  
+    }
+    int ilit = internalize (ewit);
+    internal->add_original_lit (ilit), internal->stats.restored_literals++;
+    // no need to schedule here since ewit is for sure tainted.
+  }
+
+  for (auto p = begin; p != end; p++) {
+    eclause.push_back (*p);
+    if (internal->proof && internal->lrat) {
+      const auto &elit = *p;
+      unsigned eidx = (elit > 0) + 2u * (unsigned) abs (elit);
+      assert ((size_t) eidx < ext_units.size ());
+      const int64_t id = ext_units[eidx];
+      bool added = ext_flags[abs (elit)];
+      if (id && !added) {
+        ext_flags[abs (elit)] = true;
+        internal->lrat_chain.push_back (id);
+      }
+    }
+    int ilit = internalize (*p);
+    internal->add_original_lit (ilit), internal->stats.restored_literals++;
+    if (internal->opts.restoreall != 2)
+      decide_scheduling_c (*p, timestamp);
+  }
+
+  if (internal->proof && internal->lrat) {
+    for (const auto &elit : eclause) {
+      ext_flags[abs (elit)] = false;
+    }
+  }
+  internal->finish_added_clause_with_id (id, true);
+  eclause.clear ();
+  internal->stats.restored_clauses++;
 }
 
 void External::restore_clause (const vector<int>::const_iterator &begin,
@@ -312,6 +409,36 @@ void External::restore_clauses (unsigned uwit, uint32_t ts,
 }
 
 /* -------------------------------------------------------------------------- */
+// NEW VERSION. p points to the first size field of the clause
+uint32_t External::timestamp_c (int *p) {
+  assert (*p);
+  const uint32_t ts = static_cast<uint32_t> (*(p + 1));
+  assert (ts);
+  return ts;
+  /* TODO: readd once shared stack is implemented with new version
+  if (ts)
+    return ts;
+  // Shared stack: 0 0 0 pu pl
+  const uintptr_t ptr = (static_cast<uintptr_t> (
+                            static_cast<uint32_t> (stack[idx + 3])) << 32) |
+                            static_cast<uint32_t> (stack[idx + 4]);
+  SharedStack *ss = reinterpret_cast<SharedStack *> (ptr);
+  return ss->stamp;                         
+  */
+}
+
+inline void decode_size_field (const int *size_field, bool &wit_embedded, 
+                               bool &id_long, unsigned &other_lits_size) {
+  assert (*size_field);
+
+  const uint32_t encoded = static_cast<uint32_t> (*size_field);
+  const bool clause_small = encoded & CLAUSE_SMALL;
+
+  wit_embedded = clause_small && (encoded & EMBEDDED);
+  id_long = !clause_small || (encoded & ID_LONG);
+  other_lits_size = clause_small ? (encoded & SIZE_MASK) : encoded;
+}
+
 // Get the time stamp of the clause at idx on stack
 uint32_t External::timestamp (const vector<int> &stack, uint32_t idx) {
   assert (idx < stack.size ());
@@ -325,6 +452,16 @@ uint32_t External::timestamp (const vector<int> &stack, uint32_t idx) {
                             static_cast<uint32_t> (stack[idx + 4]);
   SharedStack *ss = reinterpret_cast<SharedStack *> (ptr);
   return ss->stamp;                         
+}
+
+// NEW VERSION
+int* External::next_event_c (int* p) {
+  // TODO: shared stack case
+  bool wit_embedded, id_long; 
+  unsigned other_lits_size;
+  decode_size_field (p, wit_embedded, id_long, other_lits_size);
+  // es ts (idu) idl l1 ... lk es es2 ts2 ...
+  return p + 1 + (id_long ? 2 : 1) + other_lits_size + 2;
 }
 
 // Returns the index of the next restoration event (next clause or next shared stack reference)
@@ -341,6 +478,56 @@ uint32_t External::next_event (const vector<int> &stack, uint32_t idx) {
 
   // Shared stack reference: 0 0 0 ptr_u ptr_l
   return idx + 5;
+}
+
+// NEW VERSION
+int* External::restore_event_c (int *p, unsigned uwit, RestoreStats &clauses) {
+  // TODO: shared stack case 
+  bool wit_embedded, id_long; 
+  unsigned other_lits_size;
+  decode_size_field (p, wit_embedded, id_long, other_lits_size);
+  //  v +1  +2   +3  +4 
+  // es ts [idu] idl l1 .. lk es
+  int64_t id;
+  if (id_long) {
+    id = (static_cast<int64_t> (*(p + 2)) << 32) |
+          static_cast<uint32_t> (*(p + 3));
+  } else {
+    id = static_cast<uint32_t> (*(p + 2));
+  }
+  LOG ("id computed: %" PRId64 "(%s)", id, id_long ? "long" : "short");
+  auto lit = p + (id_long ? 4 : 3);
+  auto begin = lit;
+  auto end = lit + other_lits_size;
+  int satisfied = 0;
+  while (lit != end) {
+    if (!satisfied && fixed (*lit) > 0)
+      satisfied = *lit;
+    ++lit;
+  }
+  if (!satisfied && wit_embedded) {
+    const int sign = static_cast<int> (uwit & 1);
+    const int ewit = ((static_cast<int> (uwit >> 1) + 1 ^ -sign) + sign);
+    if (fixed (ewit) > 0)
+      satisfied = ewit;
+  }
+  
+  if (satisfied && !internal->opts.restoreflush) {
+    LOG (begin, static_cast<unsigned> (end - begin), "forced to not remove %d satisfied", satisfied);
+    satisfied = 0;
+  }
+
+  if (satisfied) {
+    clauses.satisfied++;
+  } else {
+    clauses.restored++;
+    const int sign = static_cast<int> (uwit & 1);
+    const int ewit = ((static_cast<int> (uwit >> 1) + 1 ^ -sign) + sign);
+    LOG ("ewit computed: %d (uwit: %u)", ewit, uwit);
+    const uint32_t clause_stamp = timestamp_c (p);
+    restore_clause_c (begin, end, id, clause_stamp, wit_embedded, ewit);
+  }
+  return end + 1; // Trailing size field
 }
 
 uint32_t External::restore_event (vector<int> &stack, uint32_t idx, RestoreStats &clauses) {
@@ -393,6 +580,36 @@ uint32_t External::restore_event (vector<int> &stack, uint32_t idx, RestoreStats
   return p - stack.begin ();
 }
 /* -------------------------------------------------------------------------- */
+// NEW VERSION
+void External::restore_next_c (RestoreStats &clauses) {
+  const unsigned uwit = tainted_heap.top ();
+  tainted_heap.pop ();
+  WitnessStack &stack = witness_stacks2[uwit];
+  const unsigned stack_size = stack.size () - 2;
+
+  uint32_t idx = ws_index[uwit];
+  auto p = stack.begin () + idx;
+  assert (idx < stack_size);
+  assert (timestamp_c (p) == get_priority (uwit));
+
+  while (true) {
+    p = restore_event_c (p, uwit, clauses);
+    ws_index[uwit] = p - stack.begin ();
+    if (p == stack.end ())
+      break;
+
+    const uint32_t next_ts = timestamp_c (p);
+    if (!tainted_heap.empty () && next_ts >= get_priority (tainted_heap.top ()))
+      break;
+  }
+
+  if (p != stack.end ()) {
+    const uint32_t next_ts = timestamp_c (p);
+    set_priority (uwit, next_ts);
+    tainted_heap.push (uwit);
+  }
+}
+
 void External::restore_next (RestoreStats &clauses) {
   const unsigned uwit = tainted_heap.top ();
   tainted_heap.pop ();
@@ -429,6 +646,20 @@ void External::restore_next (RestoreStats &clauses) {
   }
 }
 
+// NEW VERSION
+void External::propagate_tainting_c (RestoreStats &clauses) {
+  while (!tainted_heap.empty ()) {
+    restore_next_c (clauses);
+  }
+
+  for (const auto &cutoff : restore_cutoffs) {
+    auto &stack = witness_stacks2[cutoff.uwit];
+    stack.truncate (cutoff.idx + 2); // add two for the size and capacity fields
+    if (stack.empty ())
+      u_unmark (witness, cutoff.uwit);
+  }
+}
+
 void External::propagate_tainting (RestoreStats &clauses) {
 
   while (!tainted_heap.empty ()) {
@@ -460,6 +691,168 @@ void External::restore_all (RestoreStats &clauses) {
   witness.clear (); // There should be no more clauses left on the stacks
 }
 
+// NEW VERSION // _c
+void External::restore () {
+  PROFILE_SCOPE (restore);
+  restoring = true;
+  internal->stats.restorations++;
+
+  RestoreStats clauses = {};
+
+  if (internal->opts.restoreall && tainted.empty ())
+    PHASE ("restore", internal->stats.restorations,
+           "forced to restore all clauses");
+
+#ifndef QUIET
+  {
+    unsigned numtainted = 0;
+    for (const auto b : tainted)
+      if (b)
+        numtainted++;
+
+    PHASE ("restore", internal->stats.restorations,
+           "starting with %u tainted literals %.0f%%", numtainted,
+           percent (numtainted, 2u * max_var));
+  }
+  { // TODO: remove this again after evaluation
+    internal->stats.restore_ws_size += witness_stacks.size ();
+    for (const auto &stack : witness_stacks)
+      if (stack.size ()) {
+        internal->stats.restore_nstacks++;
+        internal->stats.restore_nints += stack.size ();
+        internal->stats.restore_caps += stack.capacity ();
+      }
+  }
+#endif
+
+  if (internal->opts.restoreall == 2) {
+    restore_all (clauses);
+  } 
+  else if (!tainted_lits.empty ()) {
+    assert (ws_index.empty ());
+    assert (restore_cutoffs.empty ());
+    assert (priority.empty ());
+    ws_index.resize (witness_stacks2.size ());
+    for (auto elit : tainted_lits) {
+      const unsigned uwit = elit2ulit (-elit);
+      LOG ("tainted literal %d (external) (%u unsigned)", elit, uwit);
+      WitnessStack &stack = witness_stacks2[uwit];
+      LOG (stack.begin (), static_cast<unsigned> (stack.end () - stack.begin ()), "witness_stack[%u]: ", uwit);
+      if (stack.empty ()) // TODO: That should not be possible. Depends on tainting condition...
+        continue;
+
+      auto p = stack.begin ();
+      // Get time stamp of first clause on the corresp. witness stack
+      // enc_size ts (idu) idl l1 ... lk enc_size
+      while (p != stack.end ()) {
+        if (*p) { // regular clause
+          break;
+        }
+        /* 
+        TODO: Readd once shared stacks are implemented for the new verison
+        LOG ("shared clause detected.");
+        // Shared stack: 0 0 0 pu pl 0
+        const uintptr_t ptr =
+            (static_cast<uintptr_t> (static_cast<uint32_t> (*(p + 3))) << 32) |
+                                     static_cast<uint32_t> (*(p + 4));
+
+        SharedStack *ss = reinterpret_cast<SharedStack *> (ptr);
+        
+        if (!ss->witness_cube.empty ())
+          break;
+        // TODO: can this happen? 
+        // Stale shared stack. Just skip over its witness-stack representation.
+        p += 5;
+        */
+      }
+      // Schedule with priority ts
+      if (p != stack.end ()) {
+        const uint32_t idx = p - stack.begin ();
+        const uint32_t ts = timestamp_c (p);
+        LOG ("restoration event to be scheduled begins at idx %u with time stamp %u", idx, ts);
+        assert (ts);
+        assert (!get_priority (uwit));
+        ws_index[uwit] = idx;
+        
+        set_priority (uwit, ts);
+        tainted_heap.push (uwit);
+        restore_cutoffs.push_back ({uwit, idx});
+        LOG ("pushed to heap...");
+      }      
+    }
+    tainted_lits.clear ();
+    tainted_lits.shrink_to_fit ();
+
+    // TODO: this does not account for shared stack sizes...
+    for (const auto &s : witness_stacks)
+      clauses.totalbytes += s.size () * sizeof (int);
+
+    propagate_tainting_c (clauses);
+    
+    // "resize" witness vector  
+    while (!witness.empty () && !witness.back ())
+      witness.pop_back ();
+    
+    // 'resize' witness stacks
+    while (!witness_stacks.empty () && witness_stacks.back ().empty ())
+      witness_stacks.pop_back ();
+    witness_stacks.shrink_to_fit ();
+    
+    ws_index.clear ();
+    ws_index.shrink_to_fit ();
+    restore_cutoffs.clear ();
+    restore_cutoffs.shrink_to_fit ();
+
+    assert (tainted_heap.empty ());    
+    //tainted_heap = RestoreHeap(PriorityLess(priority));
+
+    internal->stats.restore_total_bytes += clauses.totalbytes;
+    internal->stats.restore_seen_bytes += clauses.seenbytes;
+    restoring = false;
+  }
+
+  priority.clear();
+  priority.shrink_to_fit ();
+
+#ifndef QUIET
+  if (clauses.satisfied)
+    PHASE ("restore", internal->stats.restorations,
+           "removed %" PRId64 " satisfied %.0f%% of %" PRId64
+           " weakened clauses",
+           clauses.satisfied, percent (clauses.satisfied, clauses.weakened),
+           clauses.weakened);
+  else
+    PHASE ("restore", internal->stats.restorations,
+           "no satisfied clause removed out of %" PRId64
+           " weakened clauses",
+           clauses.weakened);
+
+  if (clauses.restored)
+    PHASE ("restore", internal->stats.restorations,
+           "restored %" PRId64 " clauses %.0f%% out of %" PRId64
+           " weakened clauses",
+           clauses.restored, percent (clauses.restored, clauses.weakened),
+           clauses.weakened);
+  else
+    PHASE ("restore", internal->stats.restorations,
+           "no clause restored out of %" PRId64 " weakened clauses",
+           clauses.weakened);
+  {
+    unsigned numtainted = 0;
+    for (const auto &b : tainted)
+      if (b)
+        numtainted++;
+
+    PHASE ("restore", internal->stats.restorations,
+           "finishing with %u tainted literals %.0f%%", numtainted,
+           percent (numtainted, 2u * max_var));
+  }
+#endif
+  tainted.clear ();
+  tainted.shrink_to_fit ();
+} 
+
+/*
 void External::restore () {
   PROFILE_SCOPE (restore);
   restoring = true;
@@ -620,5 +1013,5 @@ void External::restore () {
   tainted.clear ();
   tainted.shrink_to_fit ();
 } 
-
+*/
 } // namespace CaDiCaL
