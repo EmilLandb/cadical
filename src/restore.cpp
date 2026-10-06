@@ -127,9 +127,11 @@ void External::restore_clauses () {
   }
 #endif
 
+  LOG ("NEW restore_clauses ENTERED, extension size %zu", extension.size ());
   auto end_of_extension = extension.end ();
   auto p = extension.begin (), q = p;
   while (p != end_of_extension) {
+    LOG ("NEW restore_clauses INSIDE LOOP");
     clauses.weakened++;
 
     const auto saved = q;
@@ -165,9 +167,10 @@ void External::restore_clauses () {
 
     int satisfied = 0;
 
-    for (auto r = begin_of_lits; r != end_of_lits; ++r)
+    for (auto r = begin_of_lits; r != end_of_lits; ++r) {
       if (!satisfied && fixed (*r) > 0)
         satisfied = *r;
+    }
 
     if (wit_embedded && !satisfied && fixed (*wit) > 0)
       satisfied = *wit;
@@ -236,26 +239,31 @@ void External::restore_clauses () {
   // Finally recompute the witness bits.
   //
   witness.clear ();
+
   const auto begin_of_extension = extension.begin ();
   p = extension.end ();
+
   while (p != begin_of_extension) {
-    while (*--p)
-      assert (p != begin_of_extension);
-    int elit;
-    assert (p != begin_of_extension);
     --p;
-    assert (p != begin_of_extension);
-    assert (*p || *(p - 1));
-    --p;
-    assert (p != begin_of_extension);
-    assert (!*p);
-    --p;
-    assert (p != begin_of_extension);
-    while ((elit = *--p)) {
-      mark (witness, elit);
-      assert (p != begin_of_extension);
-    }
+
+    bool wit_embedded, id_long;
+    unsigned other_lits_size;
+    decode_size_field (p, wit_embedded, id_long, other_lits_size);
+    // es (idu) idl wit l1 .. lk es
+    // p points at trailing size field.
+    // Move backwards over stored literals
+    p--;
+    p -= other_lits_size;
+
+    // p now points at witness
+    const int ewit = *p;
+
+    mark (witness, ewit);
+
+    // Move from witness back to the initial size field.
+    p -= id_long ? 3 : 2;
   }
+
 }
 
 void External::restore_clauses_c () {
