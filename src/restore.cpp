@@ -150,11 +150,10 @@ void External::restore_clauses () {
   }
 #endif
 
-  LOG ("NEW restore_clauses ENTERED, extension size %zu", extension.size ());
+  printf ("cap of extension before restore: %zu\n", extension.capacity ());
   auto end_of_extension = extension.end ();
   auto p = extension.begin (), q = p;
   while (p != end_of_extension) {
-    LOG ("NEW restore_clauses INSIDE LOOP");
     clauses.weakened++;
 
     const auto saved = q;
@@ -220,7 +219,7 @@ void External::restore_clauses () {
   }
   extension.resize (q - extension.begin ());
   shrink_vector (extension);
-
+  printf ("cap of extension after restore: %zu\n", extension.capacity ());
 #ifndef QUIET
   if (clauses.satisfied)
     PHASE ("restore", internal->stats.restorations,
