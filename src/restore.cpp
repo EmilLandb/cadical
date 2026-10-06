@@ -46,6 +46,24 @@ namespace CaDiCaL {
 // See our SAT'19 paper [FazekasBiereScholl-SAT'19] for more details.
 
 /*------------------------------------------------------------------------*/
+static constexpr uint32_t CLAUSE_SMALL = 1u << 31;
+static constexpr uint32_t EMBEDDED     = 1u << 30;
+static constexpr uint32_t ID_LONG     = 1u << 29;
+static constexpr uint32_t SIZE_MASK   = (1u << 29) - 1;
+
+inline void decode_size_field (vector<int>::const_iterator size_field, bool &wit_embedded, 
+                               bool &id_long, unsigned &other_lits_size) {
+  assert (*size_field);
+
+  const uint32_t encoded = static_cast<uint32_t> (*size_field);
+  const bool clause_small = encoded & CLAUSE_SMALL;
+
+  wit_embedded = clause_small && (encoded & EMBEDDED);
+  id_long = !clause_small || (encoded & ID_LONG);
+  other_lits_size = clause_small ? (encoded & SIZE_MASK) : encoded;
+}
+
+/*------------------------------------------------------------------------*/
 
 void External::restore_clause (const vector<int>::const_iterator &begin,
                                const vector<int>::const_iterator &end,
@@ -80,8 +98,167 @@ void External::restore_clause (const vector<int>::const_iterator &begin,
 }
 
 /*------------------------------------------------------------------------*/
-
+// NEW VERSION
 void External::restore_clauses () {
+  assert (internal->opts.restoreall == 2 || !tainted.empty ());
+
+  PROFILE_SCOPE (restore);
+  internal->stats.restorations++;
+
+  struct {
+    int64_t weakened, satisfied, restored, removed;
+  } clauses;
+  memset (&clauses, 0, sizeof clauses);
+
+  if (internal->opts.restoreall && tainted.empty ())
+    PHASE ("restore", internal->stats.restorations,
+           "forced to restore all clauses");
+
+#ifndef QUIET
+  {
+    unsigned numtainted = 0;
+    for (const auto b : tainted)
+      if (b)
+        numtainted++;
+
+    PHASE ("restore", internal->stats.restorations,
+           "starting with %u tainted literals %.0f%%", numtainted,
+           percent (numtainted, 2u * max_var));
+  }
+#endif
+
+  auto end_of_extension = extension.end ();
+  auto p = extension.begin (), q = p;
+  while (p != end_of_extension) {
+    clauses.weakened++;
+
+    const auto saved = q;
+
+    bool wit_embedded, id_long;
+    unsigned other_lits_size;
+    decode_size_field (p, wit_embedded, id_long, other_lits_size);
+    
+    int64_t id;
+
+    if (id_long) {
+      const uint64_t upper = static_cast<uint32_t> (*(p + 1));
+      const uint64_t lower = static_cast<uint32_t> (*(p + 2));
+      id = static_cast<int64_t> ((upper << 32) | lower);
+    } else {
+      id = static_cast<uint32_t> (*(p + 1));
+    }
+    LOG ("id is %" PRId64, id);
+    assert (id);
+
+    auto wit = p + (id_long ? 3 : 2);
+    auto begin_of_lits = wit + 1;
+    auto end_of_lits = begin_of_lits + other_lits_size;
+    auto end_of_entry = end_of_lits + 1; // trailing encode size field
+
+    assert (end_of_entry <= end_of_extension);
+
+    int tlit = 0;
+    if (marked (tainted, -*wit)) {
+      tlit = *wit;
+      LOG ("negation of witness literal %d tainted", tlit);
+    }
+
+    int satisfied = 0;
+
+    for (auto r = begin_of_lits; r != end_of_lits; ++r)
+      if (!satisfied && fixed (*r) > 0)
+        satisfied = *r;
+
+    if (wit_embedded && !satisfied && fixed (*wit) > 0)
+      satisfied = *wit;
+
+    if (satisfied && !internal->opts.restoreflush)
+      satisfied = 0;
+
+    if (satisfied || tlit || internal->opts.restoreall) {
+      if (satisfied) {
+        clauses.satisfied++;
+      } else {
+        auto clause_begin = wit_embedded ? wit : begin_of_lits;
+        restore_clause (clause_begin, end_of_lits, id);
+        clauses.restored++;
+      }
+
+      clauses.removed++;
+      p = end_of_entry;
+      q = saved;
+    } else {
+      while (p != end_of_entry)
+        *q++ = *p++;
+    }
+  }
+  extension.resize (q - extension.begin ());
+  shrink_vector (extension);
+
+#ifndef QUIET
+  if (clauses.satisfied)
+    PHASE ("restore", internal->stats.restorations,
+           "removed %" PRId64 " satisfied %.0f%% of %" PRId64
+           " weakened clauses",
+           clauses.satisfied, percent (clauses.satisfied, clauses.weakened),
+           clauses.weakened);
+  else
+    PHASE ("restore", internal->stats.restorations,
+           "no satisfied clause removed out of %" PRId64
+           " weakened clauses",
+           clauses.weakened);
+
+  if (clauses.restored)
+    PHASE ("restore", internal->stats.restorations,
+           "restored %" PRId64 " clauses %.0f%% out of %" PRId64
+           " weakened clauses",
+           clauses.restored, percent (clauses.restored, clauses.weakened),
+           clauses.weakened);
+  else
+    PHASE ("restore", internal->stats.restorations,
+           "no clause restored out of %" PRId64 " weakened clauses",
+           clauses.weakened);
+  {
+    unsigned numtainted = 0;
+    for (const auto &b : tainted)
+      if (b)
+        numtainted++;
+
+    PHASE ("restore", internal->stats.restorations,
+           "finishing with %u tainted literals %.0f%%", numtainted,
+           percent (numtainted, 2u * max_var));
+  }
+
+#endif
+  LOG ("extension stack clean");
+  tainted.clear ();
+
+  // Finally recompute the witness bits.
+  //
+  witness.clear ();
+  const auto begin_of_extension = extension.begin ();
+  p = extension.end ();
+  while (p != begin_of_extension) {
+    while (*--p)
+      assert (p != begin_of_extension);
+    int elit;
+    assert (p != begin_of_extension);
+    --p;
+    assert (p != begin_of_extension);
+    assert (*p || *(p - 1));
+    --p;
+    assert (p != begin_of_extension);
+    assert (!*p);
+    --p;
+    assert (p != begin_of_extension);
+    while ((elit = *--p)) {
+      mark (witness, elit);
+      assert (p != begin_of_extension);
+    }
+  }
+}
+
+void External::restore_clauses_c () {
 
   assert (internal->opts.restoreall == 2 || !tainted.empty ());
 

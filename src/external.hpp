@@ -214,6 +214,11 @@ public:
   void push_binary_clause_on_extension_stack (int64_t id, int witness,
                                               int other);
 
+  void push_clause_on_extension_stack_c (Clause *, int);
+  void push_binary_clause_on_extension_stack_c (int64_t id, int witness, 
+                                                int other);
+  void extend_c ();
+  
   // The main 'extend' function which extends an internal assignment to an
   // external assignment using the extension stack (and sets 'extended').
   //
@@ -262,6 +267,7 @@ public:
                        const vector<int>::const_iterator &end,
                        const int64_t id);
 
+  void restore_clauses_c ();
   void restore_clauses ();
 
   bool is_witness (int);
@@ -432,6 +438,8 @@ public:
 
   bool traverse_all_frozen_units_as_clauses (ClauseIterator &);
   bool traverse_all_non_frozen_units_as_witnesses (WitnessIterator &);
+  bool traverse_witnesses_backward_c (WitnessIterator &);
+  bool traverse_witnesses_forward_c (WitnessIterator &);
   bool traverse_witnesses_backward (WitnessIterator &);
   bool traverse_witnesses_forward (WitnessIterator &);
 
