@@ -1,6 +1,222 @@
 #ifndef _witness_stack_hpp_INCLUDED
 #define _witness_stack_hpp_INCLUDED
+
+#include <cassert>
+#include <cstdint>
+#include <cstddef>
+#include <cstdlib>
+#include <cstring>
+
 namespace CaDiCaL {
+
+// Arena for smaller witness stacks
+//
+struct WitnessArena {
+
+	static constexpr unsigned NUM_CLASSES = 6;
+
+	static constexpr unsigned BLOCKS_PER_CHUNK = 4096;
+
+	struct Stats {
+    uint64_t allocations[NUM_CLASSES] = {};
+    uint64_t deallocations[NUM_CLASSES] = {};
+
+    uint64_t chunks[NUM_CLASSES] = {};
+
+    uint64_t live[NUM_CLASSES] = {};
+    uint64_t peak_live[NUM_CLASSES] = {};
+
+    uint64_t large_allocations = 0;
+    uint64_t large_deallocations = 0;
+
+    uint64_t growths[NUM_CLASSES] = {};
+
+    uint64_t shrink_count = 0;
+    uint64_t shrink_bytes_saved = 0;
+
+    uint64_t peak_reserved_bytes = 0;
+	};
+
+	struct Block {
+		Block *next;
+	};
+
+	struct Chunk {
+		Chunk *next;
+	};
+
+	struct SizeClass {
+		unsigned capacity;
+		Block *free_list;
+		Chunk *chunks;
+	};
+
+	SizeClass classes[NUM_CLASSES];
+
+	Stats stats;
+
+	~WitnessArena () {
+    for (unsigned i = 0; i < NUM_CLASSES; i++)
+    	release_chunks (classes[i]);
+	}
+
+	WitnessArena () {
+    classes[0] = { 8,   nullptr, nullptr };
+    classes[1] = { 12,  nullptr, nullptr };
+    classes[2] = { 16,  nullptr, nullptr };
+    classes[3] = { 32,  nullptr, nullptr };
+    classes[4] = { 64,  nullptr, nullptr };
+    classes[5] = { 128, nullptr, nullptr };
+	}
+
+	WitnessArena (const WitnessArena &) = delete;
+	WitnessArena &operator= (const WitnessArena &) = delete;
+
+	int *allocate (unsigned capacity) {
+		const std::size_t bytes = static_cast<std::size_t> (capacity) * sizeof (int);
+		const unsigned index = class_index (capacity);
+
+		if (index == NUM_CLASSES) {
+			// Large allocation: bypass the arena.
+			int *result = static_cast<int *> (std::malloc (bytes));
+			assert (result);
+
+			stats.large_allocations++;
+			return result;
+		}
+
+		SizeClass &sc = classes[index];
+
+		if (!sc.free_list)
+			add_chunk (sc);
+		
+		assert (sc.free_list);
+
+		Block *block = sc.free_list;
+		sc.free_list = block->next;
+
+		stats.allocations[index]++;
+		stats.live[index]++;
+		if (stats.live[index] > stats.peak_live[index])
+			stats.peak_live[index] = stats.live[index];
+
+		return reinterpret_cast<int *> (block);
+	}
+
+	void deallocate (int *ptr, unsigned capacity) {
+		if (!ptr)
+			return;
+
+		const unsigned index = class_index (capacity);
+
+		if (index == NUM_CLASSES) {
+			std::free (ptr);
+			stats.large_deallocations++;
+			return;
+		}
+
+		SizeClass &sc = classes[index];
+
+		Block *block = reinterpret_cast<Block *> (ptr);
+
+		block->next = sc.free_list;
+		sc.free_list = block;
+
+		assert (stats.live[index] > 0);
+		stats.deallocations[index]++;
+		stats.live[index]--;
+	}
+
+	void record_growth (unsigned old_capacity) {
+		const unsigned index = class_index (old_capacity);
+		if (index < NUM_CLASSES)
+			stats.growths[index]++;
+	}
+
+	uint64_t reserved_bytes () const {
+		uint64_t result = 0;
+
+		for (unsigned i = 0; i < NUM_CLASSES; ++i)
+			result += static_cast<uint64_t> (stats.chunks[i]) * (sizeof (Chunk) + 
+								static_cast<uint64_t> (BLOCKS_PER_CHUNK) * 
+								classes[i].capacity * sizeof (int));
+		
+		return result;
+	}
+
+	unsigned find_size_class (unsigned requested) const {
+		if (requested <= 8) return 8;
+		if (requested <= 12) return 12;
+		if (requested <= 16) return 16;
+		if (requested <= 32) return 32;
+		if (requested <= 64) return 64;
+		if (requested <= 128) return 128;
+		return requested;
+	}
+
+private:
+
+	unsigned class_index (unsigned capacity) const {
+		switch (capacity) {
+		case 8: return 0;
+		case 12: return 1;
+		case 16: return 2;
+		case 32: return 3;
+		case 64: return 4;
+		case 128: return 5;
+		default: return NUM_CLASSES;
+		}
+	}
+
+	void add_chunk (SizeClass &sc) {
+		const std::size_t block_size = sc.capacity * sizeof (int);
+
+		const std::size_t chunk_size = sizeof (Chunk) + BLOCKS_PER_CHUNK * block_size;
+
+		Chunk *chunk = static_cast<Chunk *> (std::malloc (chunk_size));
+
+		assert (chunk);
+
+		const unsigned index = class_index (sc.capacity);
+		assert (index < NUM_CLASSES);
+		stats.chunks[index]++;
+
+		chunk->next = sc.chunks;
+		sc.chunks = chunk;
+
+		char *memory = reinterpret_cast<char *> (chunk) + sizeof (Chunk);
+
+		// Turn the entire chunk into a free list.
+		Block *previous = nullptr;
+
+		for (unsigned i = 0; i < BLOCKS_PER_CHUNK; ++i) {
+			Block *block = reinterpret_cast<Block *> (memory + i * block_size);
+
+			block->next = previous;
+			previous = block;
+		}
+
+		sc.free_list = previous;
+
+		// New chunk has increased reserved memory.
+		const uint64_t reserved = reserved_bytes ();
+		if (reserved > stats.peak_reserved_bytes)
+			stats.peak_reserved_bytes = reserved;
+	}
+
+	void release_chunks (SizeClass &sc) {
+		Chunk *chunk = sc.chunks;
+
+		while (chunk) {
+			Chunk *next = chunk->next;
+			std::free (chunk);
+			chunk = next;
+		}
+
+		sc.chunks = nullptr;
+		sc.free_list = nullptr;
+	}
+};
 
 // Dynamic array for weakened clauses with a given witness. 
 // The stack just consists of a int*. Size and capacity are stored in the 
@@ -21,66 +237,100 @@ struct WitnessStack {
 		return size () == 0;
 	}
 
-	void push_back (int val) {
-		if (!stack) { // empty stack <-> nullptr
-			allocate (16); // common case
-		} else if (stack[0] == stack[1]) { // stack is full. Grow...
-			grow ();
-		}
-		const unsigned size = stack[0]; // old size (also idx to end)
-		stack[size] = val; // store value at end of stack
-		stack[0] = size + 1; // increment size
+	void allocate (unsigned requested, WitnessArena &arena) {
+		assert (!stack);
+		assert (requested >= 2);
+
+		const unsigned cap = arena.find_size_class (requested);
+
+		stack = arena.allocate (cap);
+
+		stack[0] = 2;
+		stack[1] = cap;
 	}
 
-	void grow () {
-		const unsigned new_cap = 2 * stack[1];
-		int *new_stack = new int[new_cap];
+	void push_back (int val, WitnessArena &arena) {
+		if (!stack) { // empty stack <-> nullptr
+			allocate (8, arena); // common case
+		} else if (stack[0] == stack[1]) { // stack is full. Grow...
+			grow (arena);
+		}
+		const unsigned old_size = size (); // old size (also idx to end)
+		stack[old_size] = val; // store value at end of stack
+		stack[0] = old_size + 1; // increment size
+	}
 
-		memcpy (new_stack, stack, stack[0] * sizeof (int));
+	void grow (WitnessArena &arena) {
+		assert (stack);
+		assert (stack[0] == stack[1]);
+
+		const unsigned old_size = size ();
+		const unsigned old_cap  = capacity ();
+
+		unsigned new_cap;
+
+		switch (old_cap) {
+		case 8: new_cap = 12; break;
+		case 12: new_cap = 16; break;
+		default: new_cap = 2 * old_cap; break;
+		}
+
+		int *new_stack = arena.allocate (new_cap);
+
+		std::memcpy (new_stack, stack, old_size * sizeof (int));
 		new_stack[1] = new_cap;
 
-		delete[] stack;
+		arena.deallocate (stack, old_cap);
 		stack = new_stack;
+
+		arena.record_growth (old_cap);
 	}
 
-	void truncate (unsigned new_size) {
+	void truncate (unsigned new_size, WitnessArena &arena) {
 		assert (stack);
 		assert (new_size >= 2);
-		assert (new_size <= static_cast<unsigned> (stack[0]));
+		assert (new_size <= size ());
 
 		if (new_size == 2) {
-			clear ();
+			clear (arena);
 			return;
 		}
+
 		stack[0] = new_size;
 	}
 
-	void shrink_to_fit () {
-		if (!stack || stack[0] == stack[1])
+	void shrink_to_fit (WitnessArena &arena) {
+		if (!stack || size () == capacity ())
 			return;
 
-		const unsigned size = stack[0];
-		int *new_stack = new int[size];
+		const unsigned old_size = size ();
+		const unsigned old_cap = capacity ();
 
-		memcpy (new_stack, stack, size * sizeof (int));
+		int *new_stack = arena.allocate (old_size);
 
-		new_stack[1] = size;
+		std::memcpy (new_stack, stack, old_size * sizeof (int));
+		new_stack[1] = old_size;
 
-		delete[] stack;
+		arena.deallocate (stack, old_cap);
 		stack = new_stack;
+
+		arena.stats.shrink_count++;
+		arena.stats.shrink_bytes_saved += (old_cap - old_size) * sizeof (int);
 	}
 
-	void clear () {
-		delete[] stack;
+	void clear (WitnessArena &arena) {
+		if (!stack)
+			return;	
+		const unsigned old_cap = capacity ();
+
+		assert (old_cap >= 2);
+    assert (stack[0] >= 2);
+    assert (static_cast<unsigned>(stack[0]) <= old_cap);
+
+		arena.deallocate (stack, old_cap);
 		stack = nullptr;
 	}
-
-	void allocate (unsigned capacity) {
-		stack = new int[capacity];
-		stack[0] = 2;
-		stack[1] = capacity;
-	}
-
+	
 	int *begin () {
 	    return stack ? stack + 2 : nullptr;
 	}
@@ -109,6 +359,77 @@ struct WitnessStack {
 		return stack[i + 2];
 	}
 };
+
+// This is a generalization of a shared clause: 
+// A witness cube is shared among many clauses (e.g. as for an autarky).
+// All clauses share one time stamp (they are not ordered).
+// The cube and the clause data is stored in a WitnessStack 
+// The SharedStack objects are also managed in a chunk similar to the 
+// witness stacks
+//
+struct SharedStack {
+	uint32_t backlinks; // number of still live references to this stack
+	uint32_t stamp; 
+	WitnessStack data; // CUBE 0 C1 C2 .. Ck 
+
+	void push_back (int val, WitnessArena &arena) {
+		data.push_back (val, arena);
+	}
+
+	bool empty () const {
+		return data.empty ();
+	}
+
+	int *begin () {
+	    return data.begin ();
+	}
+
+	const int *begin () const {
+	    return data.begin ();
+	}
+
+	int *end () {
+	    return data.end ();
+	}
+
+	const int *end () const {
+	    return data.end ();
+	}
+
+};
+
+struct SharedStackChunk {
+	std::vector<SharedStack> stacks;
+	uint32_t free_list = UINT32_MAX;
+
+	uint32_t allocate () {
+		if (free_list != UINT32_MAX) {
+			const uint32_t index = free_list;
+			// backlinks stores next free idx if stack is unused
+			free_list = stacks[index].backlinks; 
+			return index;
+		}
+
+		stacks.emplace_back ();
+		return stacks.size () - 1;
+	}
+
+	void deallocate (uint32_t index) {
+		stacks[index].backlinks = free_list;
+		free_list = index;
+	}
+
+	SharedStack &operator[] (uint32_t index) {
+  	assert (index < stacks.size ());
+  	return stacks[index];
+	}
+
+	const SharedStack &operator[] (uint32_t index) const {
+  	assert (index < stacks.size ());
+  	return stacks[index];
+	}
+};
+
 
 } // namespace CaDiCaL
 #endif

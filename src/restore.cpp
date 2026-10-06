@@ -82,6 +82,7 @@ uint32_t External::get_priority (unsigned ulit) const {
   return priority[ulit];
 }
 
+// NEW VERSION
 void External::decide_scheduling_c (int elit, uint32_t clause_ts) {
   const unsigned uwit = elit2ulit (-elit); // wit. that could need restoration
   LOG ("deciding scheduling for %d (unsigned %u) with time stamp %u", elit, uwit, clause_ts);
@@ -244,61 +245,6 @@ void External::restore_clause (const vector<int>::const_iterator &begin,
   internal->stats.restored_clauses++;
 }
 
-void External::restore_shared_stack (SharedStack *ss, RestoreStats &clauses) {
-  const uint32_t shared_stamp = ss->stamp;
-  VERBOSE (3, "restoring clauses with stamp %u on shared stack of size %zu ", 
-           shared_stamp, ss->clause_data.size ());
-  LOG (ss->clause_data, "shared stack clauses: ");
-  LOG (ss->witness_cube, "shared stack cube: ");
-  // The entries on clause_data look as follows:
-  // 0 id_u id_l 0 l1 l2 ... lk 0 id_u id_l 0 l1 ...
-  vector<int> &stack = ss->clause_data;
-  auto p = stack.begin ();
-  auto end_of_stack = stack.end ();
-  while (p != end_of_stack) {
-    p++; // idu
-    clauses.weakened++;
-    // copy the id of the clause
-    const int64_t id = ((int64_t) (*p) << 32) + (int64_t) *(p + 1);
-    int satisfied = 0;
-    LOG ("id is %" PRId64, id);
-    p += 3; // idu -> idl -> 0 -> first literal
-    auto begin = p;
-    // now p is on the first literal of the clause. Check satisfied and
-    // proceed pointer to the next clause (or end of stack)
-    while (p != end_of_stack && *p) {
-      if (!satisfied && fixed (*p) > 0)
-        satisfied = *p;
-      ++p;
-    }
-    if (satisfied && !internal->opts.restoreflush) {
-      LOG (begin, p, "forced to not remove %d satisfied",
-           satisfied);
-      satisfied = 0;
-    } 
-    if (satisfied) {
-      LOG (begin, p, 
-             "flushing implied %s clause satisfied by %d from shared stack", 
-             id ? "" : "dummy", satisfied);
-        clauses.satisfied++;
-    } else {
-      clauses.restored++;
-      if (id)
-        restore_clause (begin, p, id, shared_stamp);
-    }
-  }     
-  clauses.seenbytes += sizeof (int) * stack.size ();
-  clauses.totalbytes += sizeof (int) * stack.size (); // TODO: This is not really doing that
-
-  // Clear the shared stack but only free if this is the last existing reference
-  stack.clear ();
-  ss->witness_cube.clear ();
-  assert (ss->backlinks);
-  ss->backlinks--;
-  if (!ss->backlinks)
-    delete ss;
-}
-
 void External::restore_clauses (unsigned uwit, uint32_t ts, 
                                 RestoreStats &clauses) {
 
@@ -358,7 +304,7 @@ void External::restore_clauses (unsigned uwit, uint32_t ts,
            static_cast<uint32_t> (*(p + 3));
       SharedStack *ss = reinterpret_cast<SharedStack*> (ptr);
       assert (ss->stamp >= ts);
-      restore_shared_stack (ss, clauses);
+      //restore_shared_stack (ss, clauses);
       p += 4;
     } 
     else { // Regular clause
@@ -412,20 +358,15 @@ void External::restore_clauses (unsigned uwit, uint32_t ts,
 /* -------------------------------------------------------------------------- */
 // NEW VERSION. p points to the first size field of the clause
 uint32_t External::timestamp_c (int *p) {
-  assert (*p);
-  const uint32_t ts = static_cast<uint32_t> (*(p + 1));
-  assert (ts);
-  return ts;
-  /* TODO: readd once shared stack is implemented with new version
-  if (ts)
+  if (*p) {
+    const uint32_t ts = static_cast<uint32_t> (*(p + 1));
+    assert (ts);
     return ts;
-  // Shared stack: 0 0 0 pu pl
-  const uintptr_t ptr = (static_cast<uintptr_t> (
-                            static_cast<uint32_t> (stack[idx + 3])) << 32) |
-                            static_cast<uint32_t> (stack[idx + 4]);
-  SharedStack *ss = reinterpret_cast<SharedStack *> (ptr);
-  return ss->stamp;                         
-  */
+  }
+  // shared stack reference
+  const uint32_t ss_idx = static_cast<uint32_t> (*(p + 1));
+  SharedStack &ss = shared_stacks[ss_idx];
+  return ss.stamp;
 }
 
 inline void decode_size_field (const int *size_field, bool &wit_embedded, 
@@ -457,7 +398,9 @@ uint32_t External::timestamp (const vector<int> &stack, uint32_t idx) {
 
 // NEW VERSION
 int* External::next_event_c (int* p) {
-  // TODO: shared stack case
+  if (!*p)
+    return p + 2;
+
   bool wit_embedded, id_long; 
   unsigned other_lits_size;
   decode_size_field (p, wit_embedded, id_long, other_lits_size);
@@ -480,10 +423,79 @@ uint32_t External::next_event (const vector<int> &stack, uint32_t idx) {
   // Shared stack reference: 0 0 0 ptr_u ptr_l
   return idx + 5;
 }
+ 
+// NEW VERSION 
+void External::restore_shared_stack_c (int *p, RestoreStats &clauses) {
+  assert (!*p);
+  const uint32_t ss_idx = static_cast<uint32_t> (*(p + 1));
+  SharedStack &ss = shared_stacks[ss_idx];
+  assert (!ss.empty ());
+  assert (ss.backlinks);
+
+  auto q = ss.begin ();
+  auto end_of_stack = ss.end ();
+  // first skip the cube segment (0 terminated)
+  while (*q++) 
+    continue;
+  // q now points to the first size field
+  while (q != end_of_stack) {
+    bool wit_embedded, id_long; 
+    unsigned other_lits_size;
+    decode_size_field (p, wit_embedded, id_long, other_lits_size);
+    assert (!wit_embedded);
+    
+    int64_t id;
+    if (id_long) {
+      id = (static_cast<int64_t> (*(q + 1)) << 32) |
+          static_cast<uint32_t> (*(q + 2));
+    } else {
+      id = static_cast<uint32_t> (*(q + 1));
+    }
+
+    LOG ("id computed: %" PRId64 "(%s)", id, id_long ? "long" : "short");
+    auto lit = q + (id_long ? 3 : 2); // es (idu) idl l1 
+    auto begin = lit;
+    auto end = lit + other_lits_size;
+    int satisfied = 0;
+    while (lit != end) {
+      if (!satisfied && fixed (*lit) > 0)
+        satisfied = *lit;
+      ++lit;
+    }
+    if (satisfied && !internal->opts.restoreflush) {
+      LOG (begin, static_cast<unsigned> (end - begin), 
+        "forced to not remove %d satisfied", satisfied);
+      satisfied = 0;
+    }
+    if (satisfied) {
+      clauses.satisfied++;
+    } else {
+      clauses.restored++;
+      restore_clause_c (begin, end, id, ss.stamp, wit_embedded, 0);
+    }
+    // es (idu) idl l1 ... lk es es2
+    q += 1 + (id_long ? 2 : 1) + other_lits_size + 1;
+  }
+  // Finally clear the data
+  ss.data.clear (arena);
+}
 
 // NEW VERSION
 int* External::restore_event_c (int *p, unsigned uwit, RestoreStats &clauses) {
   // TODO: shared stack case 
+  if (!*p) {
+    const uint32_t ss_idx = static_cast<uint32_t> (*(p + 1));
+    SharedStack &ss = shared_stacks[ss_idx];
+    
+    if (!ss.empty ())
+      restore_shared_stack_c (p, clauses);
+    assert (ss.empty ());
+    assert (ss.backlinks);
+    if (!--ss.backlinks)
+      shared_stacks.deallocate (ss_idx);
+
+    return p + 2;
+  }
   bool wit_embedded, id_long; 
   unsigned other_lits_size;
   decode_size_field (p, wit_embedded, id_long, other_lits_size);
@@ -531,55 +543,6 @@ int* External::restore_event_c (int *p, unsigned uwit, RestoreStats &clauses) {
   return end + 1; // Trailing size field
 }
 
-uint32_t External::restore_event (vector<int> &stack, uint32_t idx, RestoreStats &clauses) {
-  assert (idx < stack.size ());
-  assert (!stack[idx]);
-
-  const uint32_t clause_stamp = timestamp (stack, idx);
-
-  if (!stack[idx + 1]) { // Shared stack: 0 0 0 pu pl
-    const uintptr_t ptr = (static_cast<uintptr_t> (
-                           static_cast<uint32_t> (stack[idx + 3])) << 32) |
-                           static_cast<uint32_t> (stack[idx + 4]);
-
-    SharedStack *ss = reinterpret_cast<SharedStack *> (ptr);
-
-    restore_shared_stack (ss, clauses);
-
-    return idx + 5;
-  }
-
-  // Regular clause: 0 ts idu idl 0 l1 l2 ... lk
-  const int64_t id =
-      (static_cast<int64_t> (stack[idx + 2]) << 32) |
-       static_cast<uint32_t> (stack[idx + 3]);
-
-  auto p = stack.begin () + idx + 5; // first literal
-  auto end = stack.end ();
-  auto begin = p;
-
-  int satisfied = 0;
-
-  while (p != end && *p) {
-    if (!satisfied && fixed (*p) > 0)
-      satisfied = *p;
-    ++p;
-  }
- 
-  if (satisfied && !internal->opts.restoreflush) {
-    LOG (begin, p, "forced to not remove %d satisfied", satisfied);
-    satisfied = 0;
-  }
-
-  if (satisfied) {
-    clauses.satisfied++;
-  } else {
-    clauses.restored++;
-    restore_clause (begin, p, id, clause_stamp);
-  }
-
-  return p - stack.begin ();
-}
 /* -------------------------------------------------------------------------- */
 // NEW VERSION
 void External::restore_next_c (RestoreStats &clauses) {
@@ -627,7 +590,7 @@ void External::restore_next (RestoreStats &clauses) {
   while (true) {
     const uint32_t ts = timestamp (stack, idx);
 
-    idx = restore_event (stack, idx, clauses);
+    //idx = restore_event (stack, idx, clauses);
     ws_index[uwit] = idx;
 
     if (idx == stack.size ())
@@ -649,21 +612,33 @@ void External::restore_next (RestoreStats &clauses) {
 
 // NEW VERSION
 void External::propagate_tainting_c (RestoreStats &clauses) {
+  size_t tainted_heap_max_size = tainted_heap.size ();
+
   while (!tainted_heap.empty ()) {
+    if (tainted_heap.size () > tainted_heap_max_size) // TODO: remove stat
+      tainted_heap_max_size = tainted_heap.size ();
     restore_next_c (clauses);
   }
 
+  //printf ("tainted_heap_max_size: %zu (bytes)\n", tainted_heap_max_size * sizeof (int));
+  //printf ("restore_cutoffs size: %zu (bytes)\n", restore_cutoffs.size () * sizeof (RestoreCutoff));
+  size_t emptied_stacks = 0;
   for (const auto &cutoff : restore_cutoffs) {
     auto &stack = witness_stacks2[cutoff.uwit];
-    stack.truncate (cutoff.idx + 2); // add two for the size and capacity fields
-    if (stack.empty ())
+    stack.truncate (cutoff.idx + 2, arena); // add two for the size and capacity fields
+    stack.shrink_to_fit (arena);
+    if (stack.empty ()) {
+      emptied_stacks++; // TODO: remove
       u_unmark (witness, cutoff.uwit);
+    }
   }
+  //printf ("emptied stacks: %zu\n", emptied_stacks);
 }
 
 void External::propagate_tainting (RestoreStats &clauses) {
-
+  
   while (!tainted_heap.empty ()) {
+    
     const unsigned uwit = tainted_heap.top ();
     const uint32_t ts = get_priority (uwit);
     assert (ts);
@@ -671,7 +646,6 @@ void External::propagate_tainting (RestoreStats &clauses) {
     //restore_clauses (uwit, ts, clauses);
     restore_next (clauses);
   }
-
   for (const auto &cutoff : restore_cutoffs) {
     auto &stack = witness_stacks[cutoff.uwit];
     stack.resize (cutoff.idx);
@@ -716,13 +690,48 @@ void External::restore () {
            percent (numtainted, 2u * max_var));
   }
   { // TODO: remove this again after evaluation
-    internal->stats.restore_ws_size += witness_stacks.size ();
-    for (const auto &stack : witness_stacks)
-      if (stack.size ()) {
-        internal->stats.restore_nstacks++;
-        internal->stats.restore_nints += stack.size ();
-        internal->stats.restore_caps += stack.capacity ();
-      }
+    internal->stats.restore_ws_size += witness_stacks2.size ();
+    size_t nstacks = 0;
+    size_t nints = 0;
+    size_t caps = 0;
+    std::vector<uint64_t> witness_stack_sizes;
+
+    for (const auto &stack : witness_stacks2) {
+        nstacks += !stack.empty ();
+        nints += stack.size ();
+        caps += stack.capacity ();
+        if (!stack.empty ()) {
+          const unsigned size = stack.size ();
+          if (witness_stack_sizes.size () <= size)
+            witness_stack_sizes.resize (size + 1, 0);
+          ++witness_stack_sizes[size];
+        }      
+    }
+
+    internal->stats.restore_nstacks += nstacks;
+    internal->stats.restore_nints += nints;
+    internal->stats.restore_caps += caps;
+    printf ("witness stacks nonempty: %zu\n", nstacks);
+    printf ("witness stacks sizes (bytes): %zu\n", nints * sizeof (int));
+    printf ("witness stacks caps (bytes): %zu\n", caps * sizeof (int));
+    printf ("witness arena stats:\n");
+    printf ("reserved bytes: %llu\n", arena.reserved_bytes ());
+    printf ("peak reserved bytes: %llu\n", arena.stats.peak_reserved_bytes);
+    printf ("large allocations: %llu\n", arena.stats.large_allocations);
+    printf ("large deallocations: %llu\n", arena.stats.large_deallocations);
+    printf ("shrink count: %llu\n", arena.stats.shrink_count);
+    printf ("shrink bytes saved: %llu\n", arena.stats.shrink_bytes_saved);
+    for (unsigned i = 0; i < WitnessArena::NUM_CLASSES; ++i) {
+      const auto &s = arena.stats;
+      printf ("class %u\n", i);
+      printf ("\tallocations: %llu\n", s.allocations[i]);
+      printf ("\tdeallocations: %llu\n", s.deallocations[i]);
+      printf ("\tchunks: %llu\n", s.chunks[i]);
+      printf ("\tlive: %llu\n", s.live[i]);
+      printf ("\tpeak_live: %llu\n", s.peak_live[i]);
+      printf ("\tgrowths: %llu\n", s.growths[i]);
+    }
+
   }
 #endif
 
@@ -734,6 +743,13 @@ void External::restore () {
     assert (restore_cutoffs.empty ());
     assert (priority.empty ());
     ws_index.resize (witness_stacks2.size ());
+    {
+    //printf ("ws_index cap: %zu (bytes)\n", ws_index.capacity () * sizeof (int32_t));
+    //printf ("priority cap: %zu (bytes)\n", priority.capacity () * sizeof (int32_t));
+    //printf ("witness_stacks2 cap: %zu (bytes)\n", witness_stacks2.capacity () * sizeof (WitnessStack));
+    //printf ("witness cap: %zu (bytes)\n", witness.capacity () * sizeof (bool));
+    //printf ("tainted cap: %zu (bytes)\n", tainted.capacity () * sizeof (bool));  
+    }
     for (auto elit : tainted_lits) {
       const unsigned uwit = elit2ulit (-elit);
       LOG ("tainted literal %d (external) (%u unsigned)", elit, uwit);
@@ -743,28 +759,24 @@ void External::restore () {
         continue;
 
       auto p = stack.begin ();
-      // Get time stamp of first clause on the corresp. witness stack
+      // Get time stamp of first clause on the corresp. witness stack:
       // enc_size ts (idu) idl l1 ... lk enc_size
+      // or for a shared stack reference
+      // 0 ss_idx 
       while (p != stack.end ()) {
         if (*p) { // regular clause
           break;
-        }
-        /* 
-        TODO: Readd once shared stacks are implemented for the new verison
-        LOG ("shared clause detected.");
-        // Shared stack: 0 0 0 pu pl 0
-        const uintptr_t ptr =
-            (static_cast<uintptr_t> (static_cast<uint32_t> (*(p + 3))) << 32) |
-                                     static_cast<uint32_t> (*(p + 4));
-
-        SharedStack *ss = reinterpret_cast<SharedStack *> (ptr);
-        
-        if (!ss->witness_cube.empty ())
+        } 
+        // shared stack reference!
+        assert (p + 1 < stack.end ());
+        const uint32_t ss_idx = static_cast<uint32_t> (*(p + 1));
+        SharedStack &ss = shared_stacks[ss_idx];
+        if (!ss.empty ()) // invariant: a stale shared stack has its data cleared.
           break;
-        // TODO: can this happen? 
-        // Stale shared stack. Just skip over its witness-stack representation.
-        p += 5;
-        */
+        assert (ss.backlinks);
+        if (!--ss.backlinks) // Last reference will be removed -> free the block
+          shared_stacks.deallocate (ss_idx);
+        p += 2; // skip over stale shared stack  
       }
       // Schedule with priority ts
       if (p != stack.end ()) {
@@ -777,7 +789,7 @@ void External::restore () {
         
         set_priority (uwit, ts);
         tainted_heap.push (uwit);
-        restore_cutoffs.push_back ({uwit, idx});
+        restore_cutoffs.push_back ({uwit, 0});
         LOG ("pushed to heap...");
       }      
     }
@@ -785,7 +797,7 @@ void External::restore () {
     tainted_lits.shrink_to_fit ();
 
     // TODO: this does not account for shared stack sizes...
-    for (const auto &s : witness_stacks)
+    for (const auto &s : witness_stacks2)
       clauses.totalbytes += s.size () * sizeof (int);
 
     propagate_tainting_c (clauses);
@@ -813,7 +825,7 @@ void External::restore () {
   }
 
   priority.clear();
-  priority.shrink_to_fit ();
+  //priority.shrink_to_fit (); // TODO: comment back in if this really does something
 
 #ifndef QUIET
   if (clauses.satisfied)

@@ -143,6 +143,8 @@ struct External {
   bool restoring = false; // for conditionally pushing to tainted_lits in internalize
   vector<int> extension; // Solution reconstruction extension stack.
 
+  WitnessArena arena;
+  SharedStackChunk shared_stacks;
   uint32_t stamp = 0; // Time stamping clauses on the witness stacks.
   vector<vector<int>> witness_stacks; // Reconstruction stacks for each witness.
   vector<WitnessStack> witness_stacks2;
@@ -281,29 +283,21 @@ struct External {
   //void push_clause_on_extension_stack_c (int wit, Clause *c);
   //void push_binary_clause_on_extension_stack_c (int64_t id, int wit, int other);
   /* ------------------------------------------------------------------------ */
-  // This is a generalization of a shared clause: 
-  // A witness cube is shared among many clauses (e.g. as for an autarky)
-  // All clauses share one time stamp (they are not ordered)
-  struct SharedStack {
-    uint32_t backlinks;
-    uint32_t stamp;
-    vector<int> witness_cube; 
-    vector<int> clause_data; // contains ids and literals of all clauses 
-  };
+
 
   struct ExtendStats {
     int64_t extension_size, events, pushed, updated, flipped;
   };
 
-  SharedStack* create_shared_stack (const vector<int> &iwit_cube);
+  uint32_t create_shared_stack (const vector<int> &iwit_cube);
 
-  void push_shared_clause (SharedStack *ss, Clause *c);
+  void push_shared_clause (uint32_t ss_idx, Clause *c);
 
   void create_shared_stack_and_push_clause (const vector<int> &iwit_cube, 
     Clause *c);
 
-  void extend_shared_stack (SharedStack *ss, unsigned uwit, ExtendStats &stats);
-
+  void extend_shared_stack (int *p, unsigned uwit, ExtendStats &stats);
+  int* extend_regular_entry (int *p, unsigned uwit, ExtendStats &stats);
   // The main 'extend' function which extends an internal assignment to an
   // external assignment using the extension stack (and sets 'extended').
   //
@@ -373,7 +367,7 @@ struct External {
                          const bool wit_embedded, const int ewit);
 
   // Restore all clauses on a shared stack
-  void restore_shared_stack (SharedStack *ss, RestoreStats &clauses);
+  void restore_shared_stack_c (int *p, RestoreStats &clauses);
 
   // Restore clauses on witness_stack[uwit] and on referenced shared stacks
   void restore_clauses (unsigned uwit, uint32_t ts, RestoreStats &clauses);
@@ -381,7 +375,6 @@ struct External {
   uint32_t timestamp (const vector<int> &stack, uint32_t idx);
   uint32_t timestamp_c (int *p);
 
-  uint32_t r_timestamp (const vector<int> &stack, uint32_t idx);
   uint32_t r_timestamp_c (int *p);
 
   uint32_t next_event (const vector<int> &stack, uint32_t idx);
@@ -572,8 +565,8 @@ struct External {
 
   bool traverse_all_frozen_units_as_clauses (ClauseIterator &);
   bool traverse_all_non_frozen_units_as_witnesses (WitnessIterator &);
-  bool traverse_shared_stack_backward (WitnessIterator &, SharedStack *ss, unsigned uwit);
-  bool traverse_shared_stack_forward (WitnessIterator &, SharedStack *ss, unsigned uwit);
+  bool traverse_shared_stack_backward (WitnessIterator &, int *p, unsigned uwit);
+  bool traverse_shared_stack_forward (WitnessIterator &, int *p, unsigned uwit);
   bool traverse_witnesses_backward (WitnessIterator &);
   bool traverse_witnesses_forward (WitnessIterator &);
 
