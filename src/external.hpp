@@ -265,7 +265,7 @@ public:
   // Restore a clause, which was pushed on the extension stack.
   void restore_clause (const vector<int>::const_iterator &begin,
                        const vector<int>::const_iterator &end,
-                       const int64_t id);
+                       const int64_t id, const bool wit_embedded);
 
   void restore_clauses_c ();
   void restore_clauses ();

@@ -129,6 +129,7 @@ void External::push_clause_on_extension_stack (Clause *c, int pivot) {
   }
   extension[first_size_field] = static_cast<int> (updated_size);
   extension.push_back (static_cast<int> (updated_size));
+
   if (!marked (witness, ewit))
     mark (witness, ewit);
 }
@@ -167,6 +168,9 @@ void External::push_binary_clause_on_extension_stack (int64_t id,
   const int elit = internal->externalize (other);
   extension.push_back (elit);
   extension.push_back (encoded_size);
+
+  if (!marked (witness, ewit))
+    mark (witness, ewit);
 }
 
 inline void decode_size_field (vector<int>::const_iterator size_field, bool &wit_embedded, 

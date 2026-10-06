@@ -67,11 +67,14 @@ inline void decode_size_field (vector<int>::const_iterator size_field, bool &wit
 
 void External::restore_clause (const vector<int>::const_iterator &begin,
                                const vector<int>::const_iterator &end,
-                               const int64_t id) {
+                               const int64_t id, const bool wit_embedded) {
   LOG (begin, end, "restoring external clause[%" PRId64 "]", id);
   assert (eclause.empty ());
   assert (id);
-  for (auto p = begin; p != end; p++) {
+  auto p = begin;
+  if (wit_embedded)
+    ++p;
+  for (; p != end; p++) {
     eclause.push_back (*p);
     if (internal->proof && internal->lrat) {
       const auto &elit = *p;
@@ -87,11 +90,31 @@ void External::restore_clause (const vector<int>::const_iterator &begin,
     int ilit = internalize (*p);
     internal->add_original_lit (ilit), internal->stats.restored_literals++;
   }
+
+  if (wit_embedded) {
+    const int ewit = *begin;
+    eclause.push_back (ewit);
+    if (internal->proof && internal->lrat) {
+      unsigned eidx = (ewit > 0) + 2u * (unsigned) abs (ewit);
+      assert ((size_t) eidx < ext_units.size ());
+      const int64_t id = ext_units[eidx];
+      bool added = ext_flags[abs (ewit)];
+      if (id && !added) {
+        ext_flags[abs (ewit)] = true;
+        internal->lrat_chain.push_back (id);
+      }
+    }
+    int ilit = internalize (ewit);
+    internal->add_original_lit (ilit);
+    internal->stats.restored_literals++;
+  }
+
   if (internal->proof && internal->lrat) {
     for (const auto &elit : eclause) {
       ext_flags[abs (elit)] = false;
     }
   }
+
   internal->finish_added_clause_with_id (id, true);
   eclause.clear ();
   internal->stats.restored_clauses++;
@@ -183,7 +206,7 @@ void External::restore_clauses () {
         clauses.satisfied++;
       } else {
         auto clause_begin = wit_embedded ? wit : begin_of_lits;
-        restore_clause (clause_begin, end_of_lits, id);
+        restore_clause (clause_begin, end_of_lits, id, wit_embedded);
         clauses.restored++;
       }
 
@@ -364,7 +387,7 @@ void External::restore_clauses_c () {
              satisfied);
         clauses.satisfied++;
       } else {
-        restore_clause (p, end_of_clause, id); // Might taint literals.
+        //restore_clause (p, end_of_clause, id); // Might taint literals.
         clauses.restored++;
       }
 
