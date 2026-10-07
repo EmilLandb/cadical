@@ -60,57 +60,6 @@ class Terminator;
 class WitnessIterator;
 
 /*------------------------------------------------------------------------*/
-struct PriorityLess {
-  vector<uint32_t> &prio;
-
-  PriorityLess (vector<uint32_t> &p) : prio (p) {}
-
-  bool operator () (unsigned a, unsigned b) const {
-    return prio[a] > prio[b];
-  }
-};
-
-struct PriorityGreater {
-  vector<uint32_t> &prio;
-
-  PriorityGreater (vector<uint32_t> &p) : prio (p) {}
-
-  bool operator () (unsigned a, unsigned b) const {
-    return prio[a] < prio[b];
-  }
-};
-
-using ExtendHeap =
-  priority_queue<unsigned, vector<unsigned>, PriorityGreater>;
-using RestoreHeap =
-  priority_queue<unsigned, vector<unsigned>, PriorityLess>;
-
-struct TaintedLess {
-  vector<uint32_t> &restore_start;
-
-  TaintedLess (vector<uint32_t> &rs) 
-    : restore_start (rs) {}
-
-  // min-heap
-  bool operator () (unsigned a, unsigned b) const {
-    return restore_start[a] >
-           restore_start[b];
-  }
-};
-
-struct ExtendNewer {
-  vector<uint32_t> newest_stamp;
-
-  ExtendNewer (vector<uint32_t> &ns)
-    : newest_stamp (ns) {}
-
-  // max-heap
-  bool operator () (unsigned a, unsigned b) const {
-    return newest_stamp[a] < newest_stamp[b];
-  }
-};
-
-/*------------------------------------------------------------------------*/
 
 struct External {
 
@@ -140,19 +89,16 @@ struct External {
 
   bool extended; // Have been extended.
   bool concluded;
-  bool restoring = false; // for conditionally pushing to tainted_lits in internalize
   vector<int> extension; // Solution reconstruction extension stack.
 
   WitnessArena arena;
   SharedStackChunk shared_stacks;
-  uint32_t stamp = 0; // Time stamping clauses on the witness stacks.
+
+  vector<int> witness_order;
   vector<vector<int>> witness_stacks; // Reconstruction stacks for each witness.
   vector<WitnessStack> witness_stacks2;
-  vector<int> tainted_lits; // For initializing the heap
-  vector<uint32_t> priority; // Priority for restoration
+  vector<bool> restoring;
   vector<uint32_t> ws_index; // Indices into the witness stacks
-
-  RestoreHeap tainted_heap;
 
   struct RestoreCutoff {
     unsigned uwit;
@@ -301,8 +247,7 @@ struct External {
   // The main 'extend' function which extends an internal assignment to an
   // external assignment using the extension stack (and sets 'extended').
   //
-  void extend_next (unsigned uwit, ExtendHeap &extend_heap, ExtendStats &stats);
-  void extend_next_c (unsigned uwit, ExtendHeap &extend_heap, ExtendStats &stats);
+  void extend_next (const int ewit, ExtendStats &stats);
   void extend ();
   //void extend_c ();
   void conclude_sat ();
@@ -349,53 +294,19 @@ struct External {
             seenbytes, totalbytes, compacted;
   };
 
-  void set_priority (unsigned ulit, uint32_t timestamp);
-
-  uint32_t get_priority (unsigned ulit) const;
-
-  // Decide whether a witness needs to be scheduled for restoration triggered
-  // by restoring a clause that contains elit and has time stamp ts.
-  void decide_scheduling (int elit, uint32_t clause_ts);
-  void decide_scheduling_c (int elit, uint32_t clause_ts);
-
   // Restore a clause, which was pushed on the extension stack.
-  void restore_clause (const vector<int>::const_iterator &begin,
-                       const vector<int>::const_iterator &end,
-                       const int64_t id, const uint32_t timestamp);
-  void restore_clause_c (const int *begin, const int* end,
-                         const int64_t id, const uint32_t timestamp,
-                         const bool wit_embedded, const int ewit);
-
+  void restore_clause (const int *begin,
+                       const int *end,
+                       const int64_t id, const bool wit_embedded, 
+                       const int ewit);
+  
   // Restore all clauses on a shared stack
-  void restore_shared_stack_c (int *p, RestoreStats &clauses);
+  //void restore_shared_stack_c (int *p, RestoreStats &clauses);
 
-  // Restore clauses on witness_stack[uwit] and on referenced shared stacks
-  void restore_clauses (unsigned uwit, uint32_t ts, RestoreStats &clauses);
-
-  uint32_t timestamp (const vector<int> &stack, uint32_t idx);
-  uint32_t timestamp_c (int *p);
-
-  uint32_t r_timestamp_c (int *p);
-
-  uint32_t next_event (const vector<int> &stack, uint32_t idx);
-  int* next_event_c (int* p);
-
-  uint32_t restore_event (vector<int> &stack, uint32_t idx, RestoreStats &clauses);
-  int* restore_event_c (int *p, unsigned uwit, RestoreStats &clauses);
-
-  void restore_next (RestoreStats &clauses);
-  void restore_next_c (RestoreStats &clauses);
-
-  // Propagate tainting end restore tainted clauses
-  void propagate_tainting (RestoreStats &clauses);
-  void propagate_tainting_c (RestoreStats &clauses);
-
-  // Restore all clauses on all witness stacks
-  void restore_all (RestoreStats &clauses);
+  void restore_next (const int ewit, RestoreStats &clauses);
 
   // Entry to restore
   void restore ();
-  //void restore_c ();
 
   bool is_witness (int);
   /*----------------------------------------------------------------------*/
@@ -565,8 +476,8 @@ struct External {
 
   bool traverse_all_frozen_units_as_clauses (ClauseIterator &);
   bool traverse_all_non_frozen_units_as_witnesses (WitnessIterator &);
-  bool traverse_shared_stack_backward (WitnessIterator &, int *p, unsigned uwit);
-  bool traverse_shared_stack_forward (WitnessIterator &, int *p, unsigned uwit);
+  //bool traverse_shared_stack_backward (WitnessIterator &, int *p, unsigned uwit);
+  //bool traverse_shared_stack_forward (WitnessIterator &, int *p, unsigned uwit);
   bool traverse_witnesses_backward (WitnessIterator &);
   bool traverse_witnesses_forward (WitnessIterator &);
 
