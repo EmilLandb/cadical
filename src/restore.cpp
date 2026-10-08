@@ -51,16 +51,6 @@ static constexpr uint32_t EMBEDDED     = 1u << 30;
 static constexpr uint32_t ID_LONG     = 1u << 29;
 static constexpr uint32_t SIZE_MASK   = (1u << 29) - 1;
 /*------------------------------------------------------------------------*/
-// Unsigned version of marked, mark and unmark
-static bool u_marked (const vector<bool> &map, unsigned ulit) {
-  return ulit < map.size () ? map[ulit] : false;
-}
-
-static void u_mark (vector<bool> &map, unsigned ulit) {
-  if (ulit >= map.size ())
-    map.resize (ulit + 1, false);
-  map[ulit] = true;
-}
 
 static void u_unmark (vector<bool> &map, unsigned ulit) {
   if (ulit < map.size ())
@@ -350,8 +340,10 @@ void External::restore () {
     ++ws_index[uwit]; // skip this clause 
     *write++ = ewit;
   }
+  printf ("witness_order size before resize: %zu\n", witness_order.size ());
   witness_order.resize (write - witness_order.begin ());
-  witness_order.shrink_to_fit ();
+  printf ("witness_order size after resize: %zu\n", witness_order.size ());
+  //shrink_vector (witness_order);
 
   for (const auto &cutoff : restore_cutoffs) {
     auto &stack = witness_stacks2[cutoff.uwit];
