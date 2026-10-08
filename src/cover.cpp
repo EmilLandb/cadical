@@ -396,7 +396,7 @@ bool Internal::cover_clause (Clause *c, Coveror &coveror) {
                 --j;
                 LOG ("adding lit %d not needed for ATA", lit);
                 clause.push_back (lit);
-                external->push_clause_literal_on_extension_stack (lit);
+                //external->push_clause_literal_on_extension_stack (lit);
               }
             }
           }
@@ -409,16 +409,16 @@ bool Internal::cover_clause (Clause *c, Coveror &coveror) {
             lrat_chain.clear ();
           }
           last_id = ++clause_id;
-          external->push_zero_on_extension_stack ();
-          external->push_witness_literal_on_extension_stack (other);
-          external->push_zero_on_extension_stack ();
-          external->push_id_on_extension_stack (last_id);
-          external->push_zero_on_extension_stack ();
+          //external->push_zero_on_extension_stack ();
+          //external->push_witness_literal_on_extension_stack (other);
+          //external->push_zero_on_extension_stack ();
+          //external->push_id_on_extension_stack (last_id);
+          //external->push_zero_on_extension_stack ();
           clause.clear ();
           already_pushed = true;
         }
         if (other) {
-          external->push_clause_literal_on_extension_stack (other);
+          //external->push_clause_literal_on_extension_stack (other);
           clause.push_back (other);
           LOG (clause, "current clause is");
         }
@@ -435,7 +435,7 @@ bool Internal::cover_clause (Clause *c, Coveror &coveror) {
             --j;
             LOG ("adding lit %d not needed for ATA", lit);
             clause.push_back (lit);
-            external->push_clause_literal_on_extension_stack (lit);
+            //external->push_clause_literal_on_extension_stack (lit);
           }
         }
         if (lrat)

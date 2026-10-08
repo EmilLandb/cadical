@@ -6,6 +6,7 @@
 #include "exttoint.hpp"
 #include "range.hpp"
 #include "util.hpp"
+#include "witness_stack.hpp"
 #include <climits>
 #include <cstdint>
 #include <cstdio>
@@ -13,6 +14,7 @@
 #include <functional>
 #include <unordered_map>
 #include <vector>
+#include <queue>
 
 /*------------------------------------------------------------------------*/
 
@@ -62,7 +64,58 @@ class WitnessIterator;
 #include "exttoint.hpp"
 
 /*------------------------------------------------------------------------*/
+/*------------------------------------------------------------------------*/
+struct PriorityLess {
+  vector<uint32_t> &prio;
 
+  PriorityLess (vector<uint32_t> &p) : prio (p) {}
+
+  bool operator () (unsigned a, unsigned b) const {
+    return prio[a] > prio[b];
+  }
+};
+
+struct PriorityGreater {
+  vector<uint32_t> &prio;
+
+  PriorityGreater (vector<uint32_t> &p) : prio (p) {}
+
+  bool operator () (unsigned a, unsigned b) const {
+    return prio[a] < prio[b];
+  }
+};
+
+using ExtendHeap =
+  priority_queue<unsigned, vector<unsigned>, PriorityGreater>;
+using RestoreHeap =
+  priority_queue<unsigned, vector<unsigned>, PriorityLess>;
+
+struct TaintedLess {
+  vector<uint32_t> &restore_start;
+
+  TaintedLess (vector<uint32_t> &rs) 
+    : restore_start (rs) {}
+
+  // min-heap
+  bool operator () (unsigned a, unsigned b) const {
+    return restore_start[a] >
+           restore_start[b];
+  }
+};
+
+struct ExtendNewer {
+  vector<uint32_t> newest_stamp;
+
+  ExtendNewer (vector<uint32_t> &ns)
+    : newest_stamp (ns) {}
+
+  // max-heap
+  bool operator () (unsigned a, unsigned b) const {
+    return newest_stamp[a] < newest_stamp[b];
+  }
+};
+
+/*------------------------------------------------------------------------*/
 /*------------------------------------------------------------------------*/
 
 struct External {
@@ -97,7 +150,26 @@ public:
 
   bool extended; // Have been extended.
   bool concluded;
-  vector<int> extension; // Solution reconstruction extension stack.
+  vector<int> extension;
+  /* ------------------------------------------------------------------------ */
+  bool restoring = false;
+  WitnessArena arena;
+  SharedStackChunk shared_stacks;
+  uint32_t stamp = 0;
+  vector<vector<int>> witness_stacks; // Reconstruction stacks for each witness.
+  vector<WitnessStack> witness_stacks2;
+  vector<int> tainted_lits;
+  vector<uint32_t> priority;
+  vector<uint32_t> ws_index;
+
+  RestoreHeap tainted_heap;
+  struct RestoreCutoff {
+    unsigned uwit;
+    uint32_t idx;
+  };
+
+  vector<RestoreCutoff> restore_cutoffs;
+  /* ------------------------------------------------------------------------ */
 
   vector<bool> witness; // Literal witness on extension stack.
   vector<bool> tainted; // Literal tainted in adding literals.
@@ -194,30 +266,35 @@ public:
     return e2i.find_or_default (elit, 0);
   }
   /*----------------------------------------------------------------------*/
+  // Extend related:
+
+  struct ExtendStats {
+    int64_t extension_size, events, pushed, updated, flipped;
+  };
+
+  uint32_t r_timestamp_c (int *p);
 
   // The following five functions push individual literals or clauses on the
   // extension stack.  They all take internal literals as argument, and map
   // them back to external literals first, before pushing them on the stack.
 
-  void push_zero_on_extension_stack ();
-
-  // Our general version of extension stacks always pushes a set of witness
-  // literals (for variable elimination the literal of the eliminated
-  // literal and for blocked clauses the blocking literal) followed by all
-  // the clause literals starting with and separated by zero.
-  //
-  void push_clause_literal_on_extension_stack (int ilit);
-  void push_witness_literal_on_extension_stack (int ilit);
-
-  void push_clause_on_extension_stack (Clause *);
-  void push_clause_on_extension_stack (Clause *, int witness);
-  void push_binary_clause_on_extension_stack (int64_t id, int witness,
+  void push_clause_on_extension_stack (int wit, Clause *c);
+  void push_binary_clause_on_extension_stack (int64_t id, int wit,
                                               int other);
+
+  uint32_t create_shared_stack (const vector<int> &iwit_cube);
+  void push_shared_clause (uint32_t ss_idx, Clause *c);
+  void create_shared_stack_and_push_clause (const vector<int> &iwit_cube, Clause *c);
 
   // The main 'extend' function which extends an internal assignment to an
   // external assignment using the extension stack (and sets 'extended').
   //
+
+  void extend_shared_stack (int *p, unsigned uwit, ExtendStats &stats);
+  int* extend_regular_entry (int *p, unsigned uwit, ExtendStats &stats);
+  void extend_next_c (unsigned uwit, ExtendHeap &extend_heap, ExtendStats &stats);
   void extend ();
+
   void conclude_sat ();
 
   /*----------------------------------------------------------------------*/
@@ -251,18 +328,39 @@ public:
   }
 
   /*----------------------------------------------------------------------*/
-
   void push_external_clause_and_witness_on_extension_stack (
       const vector<int> &clause, const vector<int> &witness, int64_t id);
-
-  void push_id_on_extension_stack (int64_t id);
-
+  /*----------------------------------------------------------------------*/
+  // Restore related:
+  struct RestoreStats {
+    int64_t weakened, satisfied, restored, removed, 
+            seenbytes, totalbytes, compacted;
+  };
+  void set_priority (unsigned ulit, uint32_t timestamp);
+  uint32_t get_priority (unsigned ulit) const;
+  void decide_scheduling_c (int elit, uint32_t clause_ts);
+  void decide_scheduling (int elit, uint32_t clause_ts);
   // Restore a clause, which was pushed on the extension stack.
+  void restore_clause_c (const int *begin, const int* end, 
+                                 const int64_t id, const uint32_t timestamp, 
+                                 const bool wit_embedded, const int ewit);
   void restore_clause (const vector<int>::const_iterator &begin,
-                       const vector<int>::const_iterator &end,
-                       const int64_t id);
-
-  void restore_clauses ();
+                               const vector<int>::const_iterator &end,
+                               const int64_t id, const uint32_t timestamp);
+  void restore_clauses (unsigned uwit, uint32_t ts, 
+                                RestoreStats &clauses);
+  uint32_t timestamp_c (int *p);
+  uint32_t timestamp (const vector<int> &stack, uint32_t idx);
+  int* next_event_c (int* p);
+  uint32_t next_event (const vector<int> &stack, uint32_t idx);
+  void restore_shared_stack_c (int *p, RestoreStats &clauses);
+  int* restore_event_c (int *p, unsigned uwit, RestoreStats &clauses);
+  void restore_next_c (RestoreStats &clauses);
+  void restore_next (RestoreStats &clauses);
+  void propagate_tainting_c (RestoreStats &clauses);
+  void propagate_tainting (RestoreStats &clauses);
+  void restore_all (RestoreStats &clauses);
+  void restore ();
 
   bool is_witness (int);
   /*----------------------------------------------------------------------*/
@@ -432,6 +530,9 @@ public:
 
   bool traverse_all_frozen_units_as_clauses (ClauseIterator &);
   bool traverse_all_non_frozen_units_as_witnesses (WitnessIterator &);
+
+  bool traverse_shared_stack_backward (WitnessIterator &, int*, unsigned);
+  bool traverse_shared_stack_forward (WitnessIterator &, int*, unsigned);
   bool traverse_witnesses_backward (WitnessIterator &);
   bool traverse_witnesses_forward (WitnessIterator &);
 

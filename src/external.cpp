@@ -8,8 +8,9 @@
 namespace CaDiCaL {
 
 External::External (Internal *i)
-    : internal (i), max_var (0), vsize (0), extended (false),
-      concluded (false), terminator (0), learner (0), fixed_listener (0),
+    : internal (i), max_var (0), vsize (0), extended (false), concluded (false), 
+      restoring (false), stamp (0), tainted_heap (PriorityLess (priority)),
+      terminator (0), learner (0), fixed_listener (0),
       propagator (0), solution (0), vars (max_var) {
   assert (internal);
   assert (!internal->external);
@@ -196,6 +197,9 @@ int External::internalize (int elit, bool extension) {
       assert (!internal->opts.checkfrozen);
       LOG ("marking tainted %d", elit);
       mark (tainted, elit);
+      // Used for initializing the heap in restore. (propagation mode)
+      if (!restoring && internal->opts.restoreall != 2) 
+        tainted_lits.push_back (elit);
     }
   } else
     ilit = 0;
