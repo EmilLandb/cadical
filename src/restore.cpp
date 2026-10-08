@@ -66,23 +66,6 @@ void External::restore_clause (const int* begin,
   assert (eclause.empty ());
   assert (id);
   assert (!wit_embedded || ewit);
-  if (wit_embedded) {
-    LOG ("adding witness (external %d) back to the clause", ewit);
-    eclause.push_back (ewit);
-    if (internal->proof && internal->lrat) {
-      unsigned eidx = (ewit > 0) + 2u * (unsigned) abs (ewit);
-      assert ((size_t) eidx < ext_units.size ());
-      const int64_t id = ext_units[eidx];
-      bool added = ext_flags[abs (ewit)];
-      if (id && !added) {
-        ext_flags[abs (ewit)] = true;
-        internal->lrat_chain.push_back (id);
-      }  
-    }
-    int ilit = internalize (ewit);
-    internal->add_original_lit (ilit), internal->stats.restored_literals++;
-  }
-
   for (auto p = begin; p != end; p++) {
     eclause.push_back (*p);
     if (internal->proof && internal->lrat) {
@@ -99,7 +82,22 @@ void External::restore_clause (const int* begin,
     int ilit = internalize (*p);
     internal->add_original_lit (ilit), internal->stats.restored_literals++;
   }
-
+  if (wit_embedded) {
+    LOG ("adding witness (external %d) back to the clause", ewit);
+    eclause.push_back (ewit);
+    if (internal->proof && internal->lrat) {
+      unsigned eidx = (ewit > 0) + 2u * (unsigned) abs (ewit);
+      assert ((size_t) eidx < ext_units.size ());
+      const int64_t id = ext_units[eidx];
+      bool added = ext_flags[abs (ewit)];
+      if (id && !added) {
+        ext_flags[abs (ewit)] = true;
+        internal->lrat_chain.push_back (id);
+      }  
+    }
+    int ilit = internalize (ewit);
+    internal->add_original_lit (ilit), internal->stats.restored_literals++;
+  }
   if (internal->proof && internal->lrat) {
     for (const auto &elit : eclause) {
       ext_flags[abs (elit)] = false;
