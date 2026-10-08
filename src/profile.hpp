@@ -152,17 +152,23 @@ template <std::size_t... Is> struct ProfileIndices {};
 
 template <typename... Profiles> struct ProfileContext {
   Internal *internal;
+  const int level;
   std::tuple<Profiles...> profiles;
 
-  ProfileContext (Internal *internal, Profiles... profiles);
-  ~ProfileContext ();
+  ProfileContext (Internal *internal, int level, Profiles... profiles)
+      : internal (internal), level (level), profiles (profiles...) {
+    enterContext ();
+  }
+  ~ProfileContext () { leaveContext (); }
 
   void enterContext ();
   void leaveContext ();
 
 private:
-  template <size_t... Is> void enterContext (ProfileIndices<Is...> indices);
-  template <size_t... Is> void leaveContext (ProfileIndices<Is...> indices);
+  template <std::size_t... Is>
+  void enterContext (ProfileIndices<Is...> indices);
+  template <std::size_t... Is>
+  void leaveContext (ProfileIndices<Is...> indices);
 };
 
 struct ResumeProfile {
@@ -173,10 +179,19 @@ struct ResumeProfile {
   ResumeProfile (Profile &profile, bool condition = true)
       : profile (profile), condition (condition), entered (false) {}
 
-  void enterContext (Internal *internal, double time, int64_t ticks,
-                     int level);
-  void leaveContext (Internal *internal, double time, int64_t ticks,
-                     int level);
+  void start_profiling (Internal *internal);
+  void stop_profiling (Internal *internal);
+
+  void enterContext (Internal *internal, int level) {
+    entered = condition && !profile.active && profile.level <= level;
+    if (entered)
+      start_profiling (internal);
+  }
+  void leaveContext (Internal *internal, int level) {
+    (void) level;
+    if (entered && profile.active)
+      stop_profiling (internal);
+  }
 };
 
 struct PauseProfile {
@@ -187,11 +202,83 @@ struct PauseProfile {
   PauseProfile (Profile &profile, bool condition = true)
       : profile (profile), condition (condition), entered (false) {}
 
-  void enterContext (Internal *internal, double time, int64_t ticks,
-                     int level);
-  void leaveContext (Internal *internal, double time, int64_t ticks,
-                     int level);
+  void start_profiling (Internal *internal);
+  void stop_profiling (Internal *internal);
+
+  void enterContext (Internal *internal, int level) {
+    (void) level;
+    entered = condition && profile.active;
+    if (entered)
+      stop_profiling (internal);
+  }
+  void leaveContext (Internal *internal, int level) {
+    (void) level;
+    if (entered && !profile.active)
+      start_profiling (internal);
+  }
 };
+
+// C++ 11 version of std::make_index_sequence<N>
+template <std::size_t N, std::size_t... Is>
+struct make_indices : make_indices<N - 1, N - 1, Is...> {};
+
+template <std::size_t... Is> struct make_indices<0, Is...> {
+  typedef ProfileIndices<Is...> type;
+};
+
+template <typename... Profiles>
+void ProfileContext<Profiles...>::enterContext () {
+  enterContext (typename make_indices<sizeof...(Profiles)>::type{});
+}
+
+template <typename... Profiles>
+void ProfileContext<Profiles...>::leaveContext () {
+  leaveContext (typename make_indices<sizeof...(Profiles)>::type{});
+}
+
+template <typename... Profiles>
+template <std::size_t... Is>
+void ProfileContext<Profiles...>::enterContext (
+    ProfileIndices<Is...> indices) {
+  (void) indices;
+
+  /*
+  const double time = internal->time ();
+  const int64_t ticks = internal->stats.ticks;
+  const int level = internal->opts.profile;
+  */
+
+  using expand = int[];
+  (void) expand{
+      (std::get<Is> (profiles).enterContext (internal, level), 0)...};
+}
+
+template <typename... Profiles>
+template <std::size_t... Is>
+void ProfileContext<Profiles...>::leaveContext (
+    ProfileIndices<Is...> indices) {
+  (void) indices;
+
+  /*
+  const double time = internal->time ();
+  const int64_t ticks = internal->stats.ticks;
+  const int level = internal->opts.profile;
+  */
+
+  using expand = int[];
+  (void) expand{
+      (std::get<Is> (profiles).leaveContext (internal, level), 0)...};
+}
+
+// Explicit instantiations as Internal is now available
+template struct ProfileContext<ResumeProfile>;
+template struct ProfileContext<ResumeProfile, ResumeProfile>;
+template struct ProfileContext<ResumeProfile, ResumeProfile, ResumeProfile>;
+template struct ProfileContext<ResumeProfile, PauseProfile>;
+template struct ProfileContext<ResumeProfile, PauseProfile, PauseProfile>;
+template struct ProfileContext<PauseProfile, PauseProfile>;
+template struct ProfileContext<ResumeProfile, ResumeProfile, PauseProfile,
+                               PauseProfile, PauseProfile>;
 
 } // namespace CaDiCaL
 
@@ -199,12 +286,14 @@ struct PauseProfile {
 #define PROFILE_SCOPE(P) \
   ProfileContext<ResumeProfile> P##Profile{ \
       internal, \
+      internal->opts.profile, \
       ResumeProfile{internal->profiles.P}, \
   };
 
 #define PROFILE_SCOPE2(P, P2) \
   ProfileContext<ResumeProfile, ResumeProfile> P##Profile{ \
       internal, \
+      internal->opts.profile, \
       ResumeProfile{internal->profiles.P}, \
       ResumeProfile{internal->profiles.P2}, \
   };
@@ -214,6 +303,7 @@ struct PauseProfile {
 #define PROFILE_SCOPE_INTERRUPT_WITH(P, NEW) \
   ProfileContext<ResumeProfile, PauseProfile> P##ExchangeProfile{ \
       internal, \
+      internal->opts.profile, \
       ResumeProfile{internal->profiles.NEW}, \
       PauseProfile{internal->profiles.P}, \
   };
@@ -221,6 +311,7 @@ struct PauseProfile {
 #define PROFILE_SCOPE_WALK(P) \
   ProfileContext<ResumeProfile, PauseProfile, PauseProfile> P##Profile{ \
       internal, \
+      internal->opts.profile, \
       ResumeProfile{internal->profiles.P}, \
       PauseProfile{internal->profiles.stable}, \
       PauseProfile{internal->profiles.unstable}, \
@@ -229,6 +320,7 @@ struct PauseProfile {
 #define PROFILE_SCOPE_SEARCH(P, stable) \
   ProfileContext<ResumeProfile, ResumeProfile, ResumeProfile> P##Profile{ \
       internal, \
+      internal->opts.profile, \
       ResumeProfile{internal->profiles.P}, \
       ResumeProfile{internal->profiles.stable, stable}, \
       ResumeProfile{internal->profiles.unstable, !stable}, \
@@ -237,6 +329,7 @@ struct PauseProfile {
 #define PROFILE_SCOPE_SEARCH_STABILIZE() \
   ProfileContext<PauseProfile, PauseProfile> P##Profile{ \
       internal, \
+      internal->opts.profile, \
       PauseProfile{internal->profiles.stable}, \
       PauseProfile{internal->profiles.unstable}, \
   };
@@ -246,6 +339,7 @@ struct PauseProfile {
                  PauseProfile> \
       P##Profile{ \
           internal, \
+          internal->opts.profile, \
           ResumeProfile{internal->profiles.simplify}, \
           ResumeProfile{internal->profiles.P}, \
           PauseProfile{internal->profiles.stable}, \
@@ -270,6 +364,8 @@ struct PauseProfile {
 /*------------------------------------------------------------------------*/
 
 namespace CaDiCaL {
+
+struct Internal;
 
 struct ModeResumeContext {
   Internal *internal;

@@ -6,6 +6,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "hashmap.hpp"
+
 namespace CaDiCaL {
 
 using namespace std;
@@ -38,6 +40,7 @@ bool has_prefix (const char *str, const char *prefix);
 // the second argument to the parsed value.
 
 bool parse_int_str (const char *str, int &);
+bool parse_int64_str (const char *str, int64_t &);
 
 /*------------------------------------------------------------------------*/
 
@@ -141,6 +144,18 @@ static K find_or_default (const std::unordered_map<K, E> &map, K key,
     return default_el;
   return it->second;
 }
+
+template <class Key, class Element, class FirstHash, class SecondHash,
+          class Tumb, class KeyEqual>
+static Key find_or_default (
+    const hashmap<Key, Element, FirstHash, SecondHash, Tumb, KeyEqual> &map,
+    Key key, Element default_el) {
+  auto it = map.find (key);
+  if (it.first == Tumb () ().first)
+    return default_el;
+  return it.second;
+}
+
 // Clean-up class for bad_alloc error safety.
 
 template <typename T> struct DeferDeleteArray {
@@ -165,15 +180,14 @@ template <typename T> struct DeferDeletePtr {
   }
 };
 
-template <typename T, typename F = void (*)(T*&)>
-struct DeferDeleteFunc {
+template <typename T, typename F = void (*) (T *&)> struct DeferDeleteFunc {
   T *data;
   F func;
-  DeferDeleteFunc (T *t, F f) : data (t), func(f) {}
-  ~DeferDeleteFunc () { (*func)(data); }
+  DeferDeleteFunc (T *t, F f) : data (t), func (f) {}
+  ~DeferDeleteFunc () { (*func) (data); }
   void release () { data = nullptr; }
   void free () {
-    (*func)(data);
+    (*func) (data);
     data = nullptr;
   }
 };

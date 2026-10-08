@@ -283,24 +283,48 @@ void App::print_witness (FILE *file) {
       c += l;
     }
   } else {
-    for (auto /*[elit, ilit] C++17*/ eilit : solver->external->e2i) {
-      const int elit = eilit.first;
-      if (!c)
-        fputc ('v', file), c = 1;
-      assert (elit);
-      if (solver->external->ervars[elit])
-        continue;
-      else
-        tmp = solver->val (elit) < 0 ? -elit : elit;
-      // This only terminates if a signal is raised
-      solver->internal->terminated_asynchronously ();
-      char str[32];
-      snprintf (str, sizeof str, " %d", tmp);
-      int l = strlen (str);
-      if (c + l > 78)
-        fputs ("\nv", file), c = 1;
-      fputs (str, file);
-      c += l;
+    if (solver->external->e2i.use_hash_map) {
+      for (auto eilit : solver->external->e2i.h_e2i) {
+        const int elit = eilit.first;
+        if (!c)
+          fputc ('v', file), c = 1;
+        if (!elit) // the hash-table can contain stall entries
+          continue;
+        assert (elit);
+        if (solver->external->ervars[elit])
+          continue;
+        else
+          tmp = solver->val (elit) < 0 ? -elit : elit;
+        solver->internal->terminated_asynchronously ();
+        char str[32];
+        snprintf (str, sizeof str, " %d", tmp);
+        int l = strlen (str);
+        if (c + l > 78)
+          fputs ("\nv", file), c = 1;
+        fputs (str, file);
+        c += l;
+      }
+    } else {
+      for (size_t i = 1; i < solver->external->e2i.vec_e2i.table.size ();
+           ++i) {
+        auto eilit = std::pair<int, int> (i, solver->external->e2i[i]);
+        const int elit = eilit.first;
+        if (!c)
+          fputc ('v', file), c = 1;
+        assert (elit);
+        if (solver->external->ervars[elit])
+          continue;
+        else
+          tmp = solver->val (elit) < 0 ? -elit : elit;
+        solver->internal->terminated_asynchronously ();
+        char str[32];
+        snprintf (str, sizeof str, " %d", tmp);
+        int l = strlen (str);
+        if (c + l > 78)
+          fputs ("\nv", file), c = 1;
+        fputs (str, file);
+        c += l;
+      }
     }
   }
   if (c)
@@ -1040,9 +1064,9 @@ void App::signal_message (const char *msg, int sig) {
 #endif
 
 void App::catch_signal (int sig) {
-  signal_value = sig; // Store copy to re-raise signal in main
+  signal_value = sig;   // Store copy to re-raise signal in main
   solver->terminate (); // Immediate asynchronous call into solver.
-  Signal::reset (); // Use the first signal caught only
+  Signal::reset ();     // Use the first signal caught only
 }
 
 void App::catch_alarm () {

@@ -1273,7 +1273,8 @@ struct Internal {
   void
   mark_redundant_clauses_with_eliminated_variables_as_garbage (int64_t &);
   void unmark_binary_literals (Eliminator &);
-  bool resolve_clauses (Eliminator &, Clause *, int pivot, Clause *, bool);
+  bool resolve_clauses (Eliminator &, Clause *, int pivot, Clause *,
+                        bool propagate, bool keep_chain);
   void mark_eliminated_clauses_as_garbage (Eliminator &, int pivot, bool &);
   bool elim_resolvents_are_bounded (Eliminator &, int pivot);
   void elim_update_removed_lit (Eliminator &, int lit);
@@ -1562,9 +1563,9 @@ struct Internal {
 
   // Internal functions to enable explicit search limits.
   //
-  void limit_terminate (int);
-  void limit_decisions (int);     // Force decision limit.
-  void limit_conflicts (int);     // Force conflict limit.
+  void limit_terminate (int64_t);
+  void limit_decisions (int64_t); // Force decision limit.
+  void limit_conflicts (int64_t); // Force conflict limit.
   void limit_preprocessing (int); // Enable 'n' preprocessing rounds.
   void limit_local_search (int);  // Enable 'n' local search rounds.
   void limit_ticks (int64_t);     // Force ticks limit.
@@ -1572,7 +1573,7 @@ struct Internal {
   // External versions can access limits by 'name'.
   //
   static bool is_valid_limit (const char *name);
-  bool limit (const char *name, int); // 'true' if 'name' valid
+  bool limit (const char *name, int64_t); // 'true' if 'name' valid
 
   // Set all the CDCL search limits and increments for scheduling
   // inprocessing, restarts, clause database reductions, etc.

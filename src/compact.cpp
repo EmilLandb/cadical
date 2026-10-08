@@ -208,7 +208,7 @@ void Internal::compact () {
   // Also fixes external units.
   //
   for (auto eidx : external->vars) {
-    int src = external->e2i[eidx];
+    int src = external->e2i.find (eidx).second;
     if (!src) {
       continue;
     }
@@ -229,7 +229,7 @@ void Internal::compact () {
     LOG ("compact %" PRId64
          " maps external %d to internal %d from internal %d",
          stats.compacts, eidx, dst, src);
-    external->e2i[eidx] = dst;
+    external->e2i.update (eidx, dst);
   }
 
   // Delete garbage units. Needs to occur before resizing unit_clauses
@@ -430,7 +430,7 @@ void Internal::compact () {
       assert (elit != INT_MIN);
       int eidx = abs (elit);
       assert (eidx <= external->max_var);
-      int ilit = external->e2i[eidx];
+      int ilit = eidx ? external->e2i[eidx] : 0;
       assert (!ilit == !elit);
       if (elit < 0)
         ilit = -ilit;
@@ -527,10 +527,12 @@ void Internal::compact () {
   /*----------------------------------------------------------------------*/
 
   max_var = mapper.new_max_var;
+  external->e2i.maybe_compress (max_var);
 
   stats.vars_unused = 0;
   stats.vars_inactive = stats.vars_now_fixed = mapper.first_fixed ? 1 : 0;
-  stats.vars_now_substituted = stats.vars_now_eliminated = stats.vars_now_pure = 0;
+  stats.vars_now_substituted = stats.vars_now_eliminated =
+      stats.vars_now_pure = 0;
 
   check_var_stats ();
 

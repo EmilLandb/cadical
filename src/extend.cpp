@@ -1,4 +1,5 @@
 #include "internal.hpp"
+#include "util.hpp"
 
 namespace CaDiCaL {
 
@@ -298,9 +299,13 @@ void External::push_external_clause_and_witness_on_extension_stack (
     assert (elit != INT_MIN && elit);
     assert (abs (elit) <= max_var);
     int eidx = abs (elit);
-    if (!e2i[eidx])
+    int ilit = e2i.find_or_default (eidx, 0);
+    if (!ilit) {
       init (eidx);
-    assert (e2i[eidx] && e2i[eidx] != INT_MIN);
+      assert (e2i.find_or_default (eidx, 0));
+      ilit = e2i.find (eidx).second;
+    }
+    assert (ilit && ilit != INT_MIN);
     extension.push_back (elit);
     mark (witness, elit);
   }
@@ -314,9 +319,13 @@ void External::push_external_clause_and_witness_on_extension_stack (
     assert (elit != INT_MIN);
     assert (abs (elit) <= max_var);
     int eidx = abs (elit);
-    if (!e2i[eidx])
-      init (abs (eidx));
-    assert (e2i[eidx] && e2i[eidx] != INT_MIN);
+    int ilit = e2i.find_or_default (eidx, 0);
+    if (!ilit) {
+      init (eidx);
+      assert (e2i.find_or_default (eidx, 0));
+      ilit = e2i.find (eidx).second;
+    }
+    assert (ilit && ilit != INT_MIN);
     extension.push_back (elit);
   }
 }
@@ -503,8 +512,8 @@ void External::extend () {
   ExtendStats stats = {};
 
   // Copy the internal assignment into an external one
-  for (unsigned i = 1; i <= (unsigned) max_var; i++) { 
-    const int ilit = e2i[i];
+  for (unsigned i = 1; i <= (unsigned) max_var; i++) {
+    const int ilit = e2i.find (i).second;
     if (!ilit)
       continue;
     if (i >= vals.size ())

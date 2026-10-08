@@ -88,6 +88,7 @@ OPTION( eagersubsume,         1,  0,  1,0,1,1, "subsume recently learned") \
 OPTION( eagersubsumelim,     20,  1,1e3,0,0,1, "limit on subsumed candidates") \
 OPTION( elevate,              2, -1,  3,0,0,1, "elevate during clause addition") \
 OPTION( elim,                 1,  0,  1,0,1,1, "bounded variable elimination") \
+OPTION( elimaggressiveGC,     0,  0,  1,0,0,1, "run GC earlier during elim (debug only)") \
 OPTION( elimands,             1,  0,  1,0,0,1, "find AND gates") \
 OPTION( elimbackward,         1,  0,  1,0,0,1, "eager backward subsumption") \
 OPTION( elimboundmax,        16, -1,2e6,1,0,1, "maximum elimination bound") \
@@ -152,6 +153,7 @@ OPTION( flushfactor,          3,  1,1e3,0,0,1, "interval increase") \
 OPTION( flushint,           1e5,  1,2e9,0,0,1, "initial limit") \
 OPTION( forcephase,           0,  0,  1,0,0,1, "always use initial phase") \
 OPTION( frat,                 0,  0,  2,0,0,1, "1=frat(lrat), 2=frat(drat)") \
+OPTION( glueassumptions,      2,  0,  2,0,0,1, "count assumption levels as glue (0=none, 1=one, 2=all)") \
 OPTION( idrup,                0,  0,  1,0,0,1, "incremental proof format") \
 OPTION( ilb,                  0,  0,  2,0,0,1, "ILB (incremental lazy backtrack) (0: no, 1: assumptions only, 2: everything)") \
 OPTION( incdecay,             1,  0,  4,0,0,1, "decay clauses when doing incremental clauses" ) \
@@ -299,6 +301,7 @@ OPTION( vivifytier2eff,       2,  1,100,1,0,1, "relative tier2 effort") \
 OPTION( vivifytier3,          1,  0,  1,0,0,1, "vivification tier3") \
 OPTION( vivifytier3eff,       1,  1,100,1,0,1, "relative tier3 effort") \
 OPTION( walk,                 1,  0,  1,0,0,1, "enable random walks") \
+OPTION( walkbinarylimit,     31,  0, 31,0,0,1, "literal bits limit for inlining [debug only]") \
 OPTION( walkddfwstrat,        4,  0,  4,1,0,1, "ddfw weight strategy [0=yalin-itl,1=yalin=ite,2=yalin-ith,3=ddfw,4=tassat") \
 OPTION( walkeffort,          80,  1,1e5,1,0,1, "relative efficiency per mille") \
 OPTION( walkfullocc,          2,  0,  2,1,0,1, "0 = single watched, 1 = Kissat watched, 2 = ddfw") \
