@@ -458,15 +458,31 @@ void External::extend_next (const int ewit, ExtendStats &stats) {
   const unsigned uwit = elit2ulit (ewit);
   WitnessStack &stack = witness_stacks2[uwit];  
 
-  uint32_t idx = ws_index[uwit] - 1; // idx to the trailing size field
+  uint32_t idx = ws_index[uwit]; // idx to the trailing size field
   assert (idx);
 
-  const int size_field = stack[idx];
-  
   bool wit_embedded, id_long;
   unsigned other_lits_size;
+  int size_field;
+
+  while (skipped[uwit]) { // skip clauses starting from idx 
+    --skipped[uwit];
+    // es [idu] idl l1 .. lk es es2
+    //                      idx
+    size_field = stack[--idx];
+    decode_size_field (size_field, wit_embedded, id_long, other_lits_size);
+    idx -= 1 + other_lits_size + (id_long ? 2 : 1);
+  }
+  assert (idx);
+  // idx is now at the first size field of the last skipped clause
+
+  size_field = stack[--idx];
   decode_size_field (size_field, wit_embedded, id_long, other_lits_size);
   assert (other_lits_size);
+  // idx is on trailing size field
+  // es [idu] idl l1 .. lk es
+  //                       idx
+        
   --idx; // idx to the last literal
   auto idl_pos = idx - other_lits_size;
   bool satisfied = false;
@@ -527,6 +543,7 @@ void External::extend () {
   // Initialize the extension state.
   assert (ws_index.empty ());
   ws_index.resize (witness_stacks2.size ());
+  skipped.resize (witness_stacks2.size ());
 
   // initialize the indices into the stacks
   for (unsigned uwit = 0; uwit < witness_stacks2.size (); uwit++) {
@@ -546,11 +563,16 @@ void External::extend () {
   while (p != begin) {
     // TODO: lookahead one, if it is a zero extend shared stack instead
     const int ewit = *--p;
+    if (ival (ewit) == ewit) {
+      const unsigned uwit = elit2ulit (ewit);
+      skipped[uwit]++;
+      continue;
+    }
     extend_next (ewit, stats);
   }
 
   ws_index.clear ();
-
+  skipped.clear ();
 
   internal->stats.extension_events += stats.events;
   internal->stats.extension_heap_pushed += stats.pushed;

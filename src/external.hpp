@@ -107,7 +107,8 @@ public:
   vector<WitnessStack> witness_stacks2;
   vector<bool> restoring;
   vector<uint32_t> ws_index; // Indices into the witness stacks
-
+  vector<uint32_t> skipped;
+  
   struct RestoreCutoff {
     unsigned uwit;
     uint32_t idx;
