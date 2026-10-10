@@ -61,7 +61,8 @@ void External::restore_clause (const int* begin,
                                const int* end,
                                const int64_t id, const bool wit_embedded,
                                const int ewit) {
-  LOG (begin, static_cast<unsigned> (end - begin), "restoring external clause[%" PRId64 "]", id);
+  LOG ("restoring clause...");
+  //LOG (begin, static_cast<unsigned> (end - begin), "restoring external clause[%" PRId64 "]", id);
   
   assert (eclause.empty ());
   assert (id);
@@ -219,8 +220,8 @@ void External::restore_shared_stack_c (int *p, RestoreStats &clauses) {
 
 void External::restore_next (const int ewit, RestoreStats &clauses) {
   const unsigned uwit = elit2ulit (ewit);
-  assert(ws_index[uwit] < stack.size() - 2);
   WitnessStack &stack = witness_stacks2[uwit];
+  assert(ws_index[uwit] < stack.size() - 2);
   bool wit_embedded, id_long;
   unsigned other_lits_size;
 
@@ -269,7 +270,7 @@ void External::restore_next (const int ewit, RestoreStats &clauses) {
   }
 
   if (satisfied && !internal->opts.restoreflush) {
-    LOG (begin, static_cast<unsigned> (end - begin), 
+    LOG (begin, static_cast<unsigned> (end_of_lits - begin), 
          "forced to not remove %d satisfied", satisfied);
     satisfied = 0;
   }
@@ -325,7 +326,7 @@ void External::restore () {
 
   while (read != end) {
     const int ewit = *read++;
-
+    const int blit = *read++;
     // restore the corresponding clause!
     if (internal->opts.restoreall == 2 || marked (tainted, -ewit)) { 
       restore_next (ewit, clauses);
@@ -337,10 +338,11 @@ void External::restore () {
     assert (!marked (restoring, ewit)); 
     ++ws_index[uwit]; // skip this clause 
     *write++ = ewit;
+    *write++ = blit;
   }
-  printf ("witness_order size before resize: %zu\n", witness_order.size ());
+  //printf ("witness_order size before resize: %zu\n", witness_order.size ());
   witness_order.resize (write - witness_order.begin ());
-  printf ("witness_order size after resize: %zu\n", witness_order.size ());
+  //printf ("witness_order size after resize: %zu\n", witness_order.size ());
   //shrink_vector (witness_order);
 
   for (const auto &cutoff : restore_cutoffs) {

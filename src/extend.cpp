@@ -71,7 +71,7 @@ void External::push_clause_on_extension_stack (int wit, Clause *c) {
   // Remember the index of the first size field.
   stack.push_back (0, arena); // Will be updated in the end.
   const uint32_t first_size_field = stack.size () - 1;
-  LOG ("pushing time stamp %u", stamp);
+  
   // We can use the upper 3 bits for flagging if the clause has less than 
   // (1u << 29) - 1 litereals which is roughyl 536.9 million
   const unsigned size = c->size;
@@ -94,17 +94,24 @@ void External::push_clause_on_extension_stack (int wit, Clause *c) {
   // Now we will push the literals. 
   // We will skip the witness if it is embeddable, i.e. if the clause is
   // compactable and the witness is included in the clause
+  int blit = 0;
   bool embedded = false;
   for (const auto &lit : *c) {
     const int elit = internal->externalize (lit);
-    if (elit == ewit)
+
+    if (elit == ewit) {
       if (compactable) {
         embedded = true;
         continue;
       }
+    } else if (!blit) {
+      blit = elit;
+    }
+
     LOG ("pushing literal %d (external %d)", lit, elit);
     stack.push_back (elit, arena);
   }
+  assert (blit);
 
   // Finally we update the size fields accordingly.
   uint32_t updated_size = c->size;
@@ -127,6 +134,8 @@ void External::push_clause_on_extension_stack (int wit, Clause *c) {
   }
 
   witness_order.push_back (ewit);
+  LOG ("pushing to witness order blocking literal %d (external)", blit);
+  witness_order.push_back (blit);
 }
 
 // NEW VERSION // _c
@@ -177,8 +186,9 @@ void External::push_binary_clause_on_extension_stack (int64_t id, int wit,
     LOG ("marking as witness %d (external)", ewit);
     mark (witness, ewit);
   }
-
   witness_order.push_back (ewit);
+  LOG ("pushing to witness order blocking literal %d (external)", elit);
+  witness_order.push_back (elit); // blocking literal
 }
 
 /* -------------------------------------------------------------------------- */
@@ -559,11 +569,12 @@ void External::extend () {
   
   auto p = witness_order.end ();
   auto begin = witness_order.begin ();
-
+  assert (witness_order.size () % 2 == 0);
   while (p != begin) {
     // TODO: lookahead one, if it is a zero extend shared stack instead
+    const int blit = *--p;
     const int ewit = *--p;
-    if (ival (ewit) == ewit) {
+    if (ival (blit) == blit || ival (ewit) == ewit) {
       const unsigned uwit = elit2ulit (ewit);
       skipped[uwit]++;
       continue;
@@ -706,7 +717,7 @@ bool External::traverse_shared_stack_forward (WitnessIterator &it, int *p, unsig
 bool External::traverse_witnesses_backward (WitnessIterator &it) {
   if (internal->unsat)
     return true;
-
+  LOG ("traversing witnesses backward...");
   assert (ws_index.empty ());
   ws_index.resize (witness_stacks2.size ());
 
@@ -723,6 +734,7 @@ bool External::traverse_witnesses_backward (WitnessIterator &it) {
   auto p = witness_order.end ();
 
   while (p != witness_order.begin ()) {
+    --p; // skip blocking literal
     const int ewit = *--p;
     const unsigned uwit = elit2ulit (ewit);
     auto &stack = witness_stacks2[uwit];
@@ -774,7 +786,7 @@ bool External::traverse_witnesses_backward (WitnessIterator &it) {
 bool External::traverse_witnesses_forward (WitnessIterator &it) {
   if (internal->unsat)
   return true;
-
+  LOG ("traversing witnesses forward...");
   assert (ws_index.empty ());
   ws_index.resize (witness_stacks2.size ());
 
@@ -783,6 +795,7 @@ bool External::traverse_witnesses_forward (WitnessIterator &it) {
 
   while (p != witness_order.end ()) {
     const int ewit = *p++;
+    p++; // skip blocking literal
     const unsigned uwit = elit2ulit (ewit);
     auto &stack = witness_stacks2[uwit];
 
