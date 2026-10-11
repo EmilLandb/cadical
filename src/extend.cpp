@@ -464,7 +464,7 @@ void External::extend_shared_stack (int *p, unsigned uwit, ExtendStats &stats) {
 /* -------------------------------------------------------------------------- */
 // extend the next clause to be extended on the witness stack of ewit 
 // and update index to the next clause to be extended on this stack.
-void External::extend_next (const int ewit, ExtendStats &stats) {
+int External::extend_next (const int ewit, ExtendStats &stats) {
   const unsigned uwit = elit2ulit (ewit);
   WitnessStack &stack = witness_stacks2[uwit];  
 
@@ -489,27 +489,34 @@ void External::extend_next (const int ewit, ExtendStats &stats) {
   size_field = stack[--idx];
   decode_size_field (size_field, wit_embedded, id_long, other_lits_size);
   assert (other_lits_size);
-  // idx is on trailing size field
-  // es [idu] idl l1 .. lk es
-  //                       idx
-        
-  --idx; // idx to the last literal
-  auto idl_pos = idx - other_lits_size;
-  bool satisfied = false;
 
-  while (idx != idl_pos) {
-    const int elit = stack[idx];
-    if (!satisfied && ival (elit) == elit)
-      satisfied = true;
+  bool satisfied = false;
+  int new_blit = 0;
+  if (other_lits_size == 1) {
+    // Binary clause: the witness and its only other literal
+    // are both unsatisfied, so the witness must be flipped.
     --idx;
+    --idx;  // should now be on the idl field
+  } else {
+    // idx is on trailing size field
+    // es [idu] idl l1 .. lk es
+    //                       idx
+        
+    --idx; // idx to the last literal
+    auto idl_pos = idx - other_lits_size;
+    
+    while (idx != idl_pos) {
+      const int elit = stack[idx];
+      if (!satisfied && ival (elit) == elit) {
+        // Cannot be the witness. We have guarded against this in extend.
+        new_blit = elit; 
+        satisfied = true;
+      }
+      --idx;
+    }
   }
 
   // idx should now be of the idl field
-  if (!satisfied) {
-    if (wit_embedded)
-      if (ival (ewit) == ewit)
-        satisfied = true;
-  }
   if (!satisfied) {
     assert (ival (ewit) != ewit);
     const size_t var = abs (ewit);
@@ -523,6 +530,7 @@ void External::extend_next (const int ewit, ExtendStats &stats) {
   }
   idx -= (id_long ? 1 : 0) + 1; // idx is of the first size field.
   ws_index[uwit] = idx;
+  return new_blit;
 }
 
 // NEW VERSION // _c
@@ -577,9 +585,12 @@ void External::extend () {
     if (ival (blit) == blit || ival (ewit) == ewit) {
       const unsigned uwit = elit2ulit (ewit);
       skipped[uwit]++;
+      stats.extend_blocked++;
       continue;
     }
-    extend_next (ewit, stats);
+    const int new_blit = extend_next (ewit, stats);
+    if (new_blit)
+      *(p + 1) = new_blit;
   }
 
   ws_index.clear ();
@@ -587,6 +598,7 @@ void External::extend () {
 
   internal->stats.extension_events += stats.events;
   internal->stats.extension_heap_pushed += stats.pushed;
+  internal->stats.extend_blocked += stats.extend_blocked;
   PHASE ("extend", internal->stats.extensions,
          "extended through extension stack of size %lld", stats.extension_size);
   PHASE ("extend", internal->stats.extensions,

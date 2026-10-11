@@ -170,6 +170,7 @@
   STATISTIC (eliminate_xor,          2, percent, "%", eliminate_gates) \
   STATISTIC (eliminations,           1, INTERVAL, "", interval) \
   STATISTIC (extended,               1, relative, "per", weakened) \
+  STATISTIC (extend_blocked,         1, relative, "per", weakened) \
   STATISTIC (extensions,             1, relative, "per", searches) \
   STATISTIC (extension_events,       2, relative, "per", extended) \
   STATISTIC (extension_heap_pushed,  2, percent, "%", extension_events) \

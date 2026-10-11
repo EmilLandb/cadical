@@ -241,7 +241,7 @@ public:
 
 
   struct ExtendStats {
-    int64_t extension_size, events, pushed, updated, flipped;
+    int64_t extension_size, events, pushed, updated, flipped, extend_blocked;
   };
 
   uint32_t create_shared_stack (const vector<int> &iwit_cube);
@@ -256,7 +256,7 @@ public:
   // The main 'extend' function which extends an internal assignment to an
   // external assignment using the extension stack (and sets 'extended').
   //
-  void extend_next (const int ewit, ExtendStats &stats);
+  int extend_next (const int ewit, ExtendStats &stats);
   void extend ();
   //void extend_c ();
   void conclude_sat ();
