@@ -211,26 +211,10 @@ public:
     return e2i.find_or_default (elit, 0);
   }
   /*----------------------------------------------------------------------*/
-  // TODO: update descriptions
-  // The following five functions push individual literals or clauses on the
-  // extension stack indexed by ewit. They all take internal literals as argument, 
-  // and map them back to external literals first, before pushing them on the 
-  // stack.
-
-  void push_zero_on_extension_stack (int ewit);
-
-  void push_stamp_on_extension_stack (int ewit);
-  // TODO: update descriptions
-  // Our general version of extension stacks always pushes a set of witness
-  // literals (for variable elimination the literal of the eliminated
-  // literal and for blocked clauses the blocking literal) followed by all
-  // the clause literals starting with and separated by zero.
-  //
-  void push_clause_literal_on_extension_stack (int ewit, int ilit);
-  //void push_witness_literal_on_extension_stack (int ilit);
-
   //void push_clause_on_extension_stack (Clause *);
   void push_clause_on_extension_stack (int wit, Clause *);
+  void push_clause_on_extension_stack (const int64_t id, int wit, 
+                                       const vector<int> &c);
   void push_binary_clause_on_extension_stack (int64_t id, int wit,
                                               int other);
 

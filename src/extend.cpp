@@ -8,39 +8,6 @@ static constexpr uint32_t EMBEDDED     = 1u << 30;
 static constexpr uint32_t ID_LONG     = 1u << 29;
 static constexpr uint32_t SIZE_MASK   = (1u << 29) - 1;
 
-void External::push_zero_on_extension_stack (int ewit) {
-  assert (ewit);
-  const unsigned uwit = elit2ulit (ewit);
-  if (uwit >= witness_stacks.size ())
-    witness_stacks.resize (uwit + 1); // the witness bitset is resized in mark
-  witness_stacks[uwit].push_back (0);
-  LOG ("pushing 0 on witness_stacks[%u] (external %d)", uwit, ewit);
-}
-
-void External::push_id_on_extension_stack (int ewit, int64_t id) {
-  assert (ewit);
-  const uint32_t higher_bits = static_cast<int> (id >> 32);
-  const uint32_t lower_bits = (id & (((int64_t) 1 << 32) - 1));
-  const unsigned uwit = elit2ulit (ewit);
-  assert (uwit < witness_stacks.size ());
-  witness_stacks[uwit].push_back (higher_bits);
-  witness_stacks[uwit].push_back (lower_bits);
-  LOG ("pushing id %" PRIu64 " = %d + %d on witness_stacks[%u] (external %d)", 
-      id, higher_bits, lower_bits, uwit, ewit);
-}
-
-void External::push_clause_literal_on_extension_stack (int ewit, int ilit) {
-  assert (ilit);
-  assert (ewit);
-  const int elit = internal->externalize (ilit);
-  assert (elit);
-  const unsigned uwit = elit2ulit (ewit);
-  assert (uwit < witness_stacks.size ());
-  witness_stacks[uwit].push_back (elit);
-  LOG ("pushing clause literal %d on witness_stacks[%u] (external %d) (internal %d)", elit, 
-       uwit, ewit, ilit);
-}
-
 // The extension stack allows to reconstruct a satisfying assignment for the
 // original formula after removing eliminated clauses.  This was pioneered
 // by Niklas Soerensson in MiniSAT and for instance is described in our
@@ -115,6 +82,100 @@ void External::push_clause_on_extension_stack (int wit, Clause *c) {
 
   // Finally we update the size fields accordingly.
   uint32_t updated_size = c->size;
+  if (embedded) {
+    updated_size--; // One literal less in the literals field.
+    updated_size |= EMBEDDED; 
+  }
+  if (compactable) {
+    updated_size |= CLAUSE_SMALL;
+    if (id_long)
+      updated_size |= ID_LONG;
+  }
+  // Update the first size field and push the terminating size field.
+  stack.stack[first_size_field] = static_cast<int> (updated_size);
+  stack.push_back (static_cast<int> (updated_size), arena);
+  LOG (stack.begin (), static_cast<unsigned> (stack.end () - stack.begin ()), "stack now: ");
+  if (!marked (witness, ewit)) {
+    LOG ("marking as witness %d (external)", ewit);
+    mark (witness, ewit);
+  }
+
+  witness_order.push_back (ewit);
+  LOG ("pushing to witness order blocking literal %d (external)", blit);
+  witness_order.push_back (blit);
+}
+
+void External::push_clause_on_extension_stack (const int64_t id, int wit, const vector<int> &c) {
+  assert (wit);
+  assert (id > 0);
+  assert (c.size ());
+
+  LOG (c.begin (), c.end (), "Pushing clause on extension stack");
+  internal->stats.weakened++;
+  
+  const unsigned size = c.size ();
+
+  internal->stats.weakened_lengths += size;
+  
+  const int ewit = internal->externalize (wit);
+  assert (ewit);
+  const unsigned uwit = elit2ulit (ewit);
+  LOG ("ewit: %d, uwit: %u", ewit, uwit);
+  if (uwit >= witness_stacks2.size ())
+    witness_stacks2.resize (uwit + 1); // the witness bitset is resized in mark
+
+  auto &stack = witness_stacks2[uwit];
+  if (stack.empty ()) {
+    // size | cap | es | idl | |C| - 1 | es
+    const unsigned approx_min_size = 4 + size;
+    stack.allocate (approx_min_size, arena);
+  }
+  // Remember the index of the first size field.
+  stack.push_back (0, arena); // Will be updated in the end.
+  const uint32_t first_size_field = stack.size () - 1;
+  
+  // We can use the upper 3 bits for flagging if the clause has less than 
+  // (1u << 29) - 1 litereals which is roughly 536.9 million
+  const bool compactable = size < (1u << 29); 
+  const bool id_long = id > UINT32_MAX; // does not fit into 32 bit
+
+  const uint32_t idu = static_cast<uint32_t> (id >> 32);
+  const uint32_t idl = static_cast<uint32_t> (id);
+  // If we cannot flag or the id is just to long we push both parts.
+  if (!compactable || id_long) {
+    LOG ("pushing long id");
+    stack.push_back (static_cast<int> (idu), arena);
+    stack.push_back (static_cast<int> (idl), arena);
+  } else {
+    assert (!idu);
+    LOG ("pushing compact id");
+    stack.push_back (static_cast<int> (idl), arena);
+  }
+
+  // Now we will push the literals. 
+  // We will skip the witness if it is embeddable, i.e. if the clause is
+  // compactable and the witness is included in the clause
+  int blit = 0;
+  bool embedded = false;
+  for (const auto &lit : c) {
+    const int elit = internal->externalize (lit);
+
+    if (elit == ewit) {
+      if (compactable) {
+        embedded = true;
+        continue;
+      }
+    } else if (!blit) {
+      blit = elit;
+    }
+
+    LOG ("pushing literal %d (external %d)", lit, elit);
+    stack.push_back (elit, arena);
+  }
+  assert (blit);
+
+  // Finally we update the size fields accordingly.
+  uint32_t updated_size = size;
   if (embedded) {
     updated_size--; // One literal less in the literals field.
     updated_size |= EMBEDDED; 
