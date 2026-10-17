@@ -63,6 +63,9 @@
 
 #define CADICAL_STATISTICS \
   CADICAL_API_STATISTICS \
+  STATISTIC (autarky_eliminated,     1, percent, "%",    vars) \
+  STATISTIC (autarky_tries,          1, percent, "%",    autarky_eliminated) \
+  STATISTIC (autarky_success,        1, relative, "per",    autarky_tries) \
   STATISTIC (backbone_phases,        1, INTERVAL, "",    interval) \
   STATISTIC (backbone_probes,        2, relative, "per", vars) \
   STATISTIC (backbone_rounds,        2, relative, "per", backbone_phases) \

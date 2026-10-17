@@ -304,7 +304,7 @@ struct Internal {
   Last last;                // statistics at last occurrence
   Inc inc;                  // increments on limits
 
-  Delay delaying_vivify_irredundant;
+  Delay delaying_vivify_irredundant, delay_autarky;
   Delay delaying_sweep;
 
   Proof *proof; // abstraction layer between solver and tracers
@@ -1529,6 +1529,18 @@ struct Internal {
   //
   void phase (int lit);
   void unphase (int lit);
+
+  // autarky detection
+  int determine_autarky (std::vector<signed char> &, std::vector<int> &);
+  unsigned autarky_propagate_clause (Clause *c,
+                                     std::vector<signed char> &autarky_val,
+                                     std::vector<int> &work);
+  unsigned autarky_propagate_binary (Clause *c, std::vector<signed char> &autarky_val, std::vector<int> &work, int lit2);
+  unsigned autarky_propagate_unassigned (std::vector<signed char> &autarky_val, std::vector<int> &work, int lit);
+  unsigned autarky_propagate_unassigned_binary (std::vector<signed char> &autarky_val, std::vector<int> &work, int lit);
+  unsigned autarky_propagate (std::vector<signed char> &autarky_val, std::vector<int> &work);
+  void autarky_apply (const std::vector<signed char> &, const std::vector<int>&);
+  bool autarky (char c);
 
   // Globally blocked clause elimination.
   //
