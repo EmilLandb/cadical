@@ -280,9 +280,11 @@ void Internal::autarky_apply (const std::vector<signed char> &autarky_val,
 
   int removed = 0;
   bool compact = opts.autarkynonincr;
-  LOG (actual_autarky, "the autarky is ");
+  LOG (actual_autarky, "the autarky is %s", actual_autarky.empty () ? "empty" : "");
 
-  const uint32_t ss_idx = external->create_shared_stack (actual_autarky);
+  uint32_t ss_idx = 0;
+  if (!actual_autarky.empty ())
+   ss_idx = external->create_shared_stack (actual_autarky);
 
   for (auto *c : clauses) {
     if (c->garbage)

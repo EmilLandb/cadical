@@ -20,7 +20,6 @@ void External::push_clause_on_extension_stack (int wit, Clause *c) {
   assert (wit);
   LOG (c, "Pushing clause on extension stack");
   internal->stats.weakened++;
-  internal->stats.weakened_lengths += c->size;
   
   const int ewit = internal->externalize (wit);
   assert (ewit);
@@ -99,6 +98,9 @@ void External::push_clause_on_extension_stack (int wit, Clause *c) {
     LOG ("marking as witness %d (external)", ewit);
     mark (witness, ewit);
   }
+
+  // 2x encoded size field, id part(s), clause size (minus one if wit implicit)
+  internal->stats.weakened_data += 2 + (id_long ? 2 : 1) + (size - 1) + (embedded ? 0 : 1);
 
   witness_order.push_back (ewit);
   LOG ("pushing to witness order blocking literal %d (external)", blit);
@@ -194,6 +196,8 @@ void External::push_clause_on_extension_stack (const int64_t id, int wit, const 
     mark (witness, ewit);
   }
 
+  internal->stats.weakened_data += 2 + (id_long ? 2 : 1) + (size - 1) + (embedded ? 0 : 1);
+
   witness_order.push_back (ewit);
   LOG ("pushing to witness order blocking literal %d (external)", blit);
   witness_order.push_back (blit);
@@ -247,6 +251,9 @@ void External::push_binary_clause_on_extension_stack (int64_t id, int wit,
     LOG ("marking as witness %d (external)", ewit);
     mark (witness, ewit);
   }
+
+  internal->stats.weakened_data += 2 + (id_long ? 2 : 1) + 1;
+
   witness_order.push_back (ewit);
   LOG ("pushing to witness order blocking literal %d (external)", elit);
   witness_order.push_back (elit); // blocking literal
@@ -284,6 +291,10 @@ uint32_t External::create_shared_stack (const vector<int> &iwit_cube) {
   ss.push_back (0, arena);
   witness_order.push_back (0);
   witness_order.push_back (static_cast<int> (ss_idx));
+
+  // cube size + trailing 0 - (size, cap field)
+  internal->stats.weakened_data += initial_size - 1;
+
   return ss_idx;
 }
 
@@ -337,6 +348,10 @@ void External::push_shared_clause (uint32_t ss_idx, Clause *c) {
 
   ss[first_size_field] = static_cast<int> (updated_size);
   ss.push_back (static_cast<int> (updated_size), arena);
+
+  // Size fields, id part(s), literals
+  internal->stats.weakened_data += size + 2 + (id_long ? 2 : 1);
+
   LOG (ss.begin (), static_cast<unsigned> (ss.end () - ss.begin ()), "shared stack now: ");
 }
 
@@ -362,7 +377,7 @@ void External::create_shared_stack_and_push_clause (
     if (!marked (witness, ewit))
       mark (witness, ewit);
   }
-
+  internal->stats.weakened_data += initial_size - 2;
   // delimit witness cube by zero
   ss.push_back (0, arena);
   push_shared_clause (ss_idx, c);

@@ -412,6 +412,7 @@
   METRIC (walk_warmup_dummy,         2, relative, "per", walk_warmup) \
   METRIC (walk_warmup_propagate,     2, relative, "per", walk_warmup) \
   STATISTIC (weakened,               1, percent, "%", clauses) \
+  STATISTIC (weakened_data,          1, relative, "per", weakened) \
   STATISTIC (weakened_lengths,       2, relative, "per", weakened)
 
 // clang-format on
