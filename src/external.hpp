@@ -235,7 +235,7 @@ public:
   void create_shared_stack_and_push_clause (const vector<int> &iwit_cube, 
     Clause *c);
 
-  void extend_shared_stack (int *p, unsigned uwit, ExtendStats &stats);
+  void extend_shared_stack (uint32_t ss_idx, ExtendStats &stats);
   int* extend_regular_entry (int *p, unsigned uwit, ExtendStats &stats);
   // The main 'extend' function which extends an internal assignment to an
   // external assignment using the extension stack (and sets 'extended').
@@ -294,7 +294,7 @@ public:
                        const int ewit);
   
   // Restore all clauses on a shared stack
-  //void restore_shared_stack_c (int *p, RestoreStats &clauses);
+  void restore_shared_stack (uint32_t ss_idx, RestoreStats &clauses);
 
   void restore_next (const int ewit, RestoreStats &clauses);
 
@@ -469,8 +469,8 @@ public:
 
   bool traverse_all_frozen_units_as_clauses (ClauseIterator &);
   bool traverse_all_non_frozen_units_as_witnesses (WitnessIterator &);
-  //bool traverse_shared_stack_backward (WitnessIterator &, int *p, unsigned uwit);
-  //bool traverse_shared_stack_forward (WitnessIterator &, int *p, unsigned uwit);
+  bool traverse_shared_stack_backward (WitnessIterator &it, uint32_t ss_idx);
+  bool traverse_shared_stack_forward (WitnessIterator &it, uint32_t ss_idx);
   bool traverse_witnesses_backward (WitnessIterator &);
   bool traverse_witnesses_forward (WitnessIterator &);
 

@@ -800,7 +800,9 @@ long Internal::condition_round (long delta) {
             wits.push_back (lit);
       if (proof)
         proof->weaken_minus (c);
-      external->create_shared_stack_and_push_clause (wits, c);
+      uint32_t idx = external->create_shared_stack (wits);
+      external->push_shared_clause (idx, c);
+      //external->create_shared_stack_and_push_clause (wits, c);
       wits.clear ();
       mark_garbage (c);
 

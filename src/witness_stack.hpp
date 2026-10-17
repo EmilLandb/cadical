@@ -221,7 +221,7 @@ private:
 // Dynamic array for weakened clauses with a given witness. 
 // The stack just consists of a int*. Size and capacity are stored in the 
 // first two places of the array. 
-//
+
 struct WitnessStack {
 	int *stack = nullptr;
 
@@ -360,71 +360,36 @@ struct WitnessStack {
 	}
 };
 
-// This is a generalization of a shared clause: 
-// A witness cube is shared among many clauses (e.g. as for an autarky).
-// All clauses share one time stamp (they are not ordered).
-// The cube and the clause data is stored in a WitnessStack 
-// The SharedStack objects are also managed in a chunk similar to the 
-// witness stacks
-//
-struct SharedStack {
-	uint32_t backlinks; // number of still live references to this stack
-	uint32_t stamp; 
-	WitnessStack data; // CUBE 0 C1 C2 .. Ck 
-
-	void push_back (int val, WitnessArena &arena) {
-		data.push_back (val, arena);
-	}
-
-	bool empty () const {
-		return data.empty ();
-	}
-
-	int *begin () {
-	    return data.begin ();
-	}
-
-	const int *begin () const {
-	    return data.begin ();
-	}
-
-	int *end () {
-	    return data.end ();
-	}
-
-	const int *end () const {
-	    return data.end ();
-	}
-
-};
 
 struct SharedStackChunk {
-	std::vector<SharedStack> stacks;
+	std::vector<WitnessStack> stacks;
 	uint32_t free_list = UINT32_MAX;
 
 	uint32_t allocate () {
 		if (free_list != UINT32_MAX) {
 			const uint32_t index = free_list;
-			// backlinks stores next free idx if stack is unused
-			free_list = stacks[index].backlinks; 
+			free_list = static_cast<uint32_t> (reinterpret_cast<uintptr_t> (stacks[index].stack));
+			stacks[index].stack = nullptr;
 			return index;
 		}
 
 		stacks.emplace_back ();
-		return stacks.size () - 1;
+		return static_cast<uint32_t> (stacks.size () - 1);
 	}
 
 	void deallocate (uint32_t index) {
-		stacks[index].backlinks = free_list;
+		assert (index < stacks.size ());
+		assert (stacks[index].stack);
+		stacks[index].stack = reinterpret_cast<int *> (static_cast<uintptr_t> (free_list));
 		free_list = index;
 	}
 
-	SharedStack &operator[] (uint32_t index) {
+	WitnessStack &operator[] (uint32_t index) {
   	assert (index < stacks.size ());
   	return stacks[index];
 	}
 
-	const SharedStack &operator[] (uint32_t index) const {
+	const WitnessStack &operator[] (uint32_t index) const {
   	assert (index < stacks.size ());
   	return stacks[index];
 	}

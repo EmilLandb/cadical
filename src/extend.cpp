@@ -253,43 +253,37 @@ void External::push_binary_clause_on_extension_stack (int64_t id, int wit,
 }
 
 /* -------------------------------------------------------------------------- */
+// A shared stack ist just a WitnessStack that contains its cube.
+// We enumerate the cube first, then delimit by zero followed by one or more
+// encoded clauses as usual.
+// Shared Stack: w1 w2 ... wk 0 EC_1 EC_2 ... ECl
+//
 uint32_t External::create_shared_stack (const vector<int> &iwit_cube) {
-  
+  LOG (iwit_cube, "creating shared stack for witness cube ");
   const uint32_t ss_idx = shared_stacks.allocate ();
   assert (ss_idx <= UINT32_MAX);
 
-  SharedStack &ss = shared_stacks[ss_idx];
-  assert (!ss.data.stack);
+  WitnessStack &ss = shared_stacks[ss_idx];
 
   const unsigned initial_size = iwit_cube.size() + 3; // size, cap, cube, 0
-  ss.data.allocate (initial_size, arena);
+  ss.allocate (initial_size, arena);
 
-  ss.backlinks = 0;
-
-  // push a reference to all witness stacks of literals in the cube
   // First we push the cube to the data stack then we delimit by '0' and 
   // can continue to push clauses.
   // data: w1 w2 ... wk 0 EC1 EC2 .. ECl
   for (const auto &iwit : iwit_cube) {
     const int ewit = internal->externalize (iwit);
     assert (ewit);
-    const unsigned uwit = elit2ulit (ewit);
 
     ss.push_back (ewit, arena);
 
-    if (uwit >= witness_stacks2.size ())
-      witness_stacks2.resize (uwit + 1);
     if (!marked (witness, ewit))
       mark (witness, ewit);
-
-    WitnessStack &stack = witness_stacks2[uwit];
-    // Push the reference to the corresponding witness stack: 0 ss_idx
-    stack.push_back (0, arena);
-    stack.push_back (ss_idx, arena);
-    ss.backlinks++;
   }
   // delimit witness cube by zero
   ss.push_back (0, arena);
+  witness_order.push_back (0);
+  witness_order.push_back (static_cast<int> (ss_idx));
   return ss_idx;
 }
 
@@ -297,13 +291,16 @@ void External::push_shared_clause (uint32_t ss_idx, Clause *c) {
   internal->stats.weakened++;
   internal->stats.weakened_lengths += c->size;
 
-  SharedStack &ss = shared_stacks[ss_idx];
+  WitnessStack &ss = shared_stacks[ss_idx];
+
+  LOG (ss.begin (), static_cast<unsigned> (ss.end () - ss.begin ()), "pushing clause to shared stack: ");
   // We use a similar encoding as for regular clause entries.
   // We do not need to push a time stamp for every clause since it is shared.
   // Also we will not attempt to embedd the witness cube in the clause for now.
   // es (idu) idl l1 ... lk es
   ss.push_back (0, arena); // Will be updated in the end.
-  const uint32_t first_size_field = ss.data.size () - 1;
+  const uint32_t first_size_field = ss.size () - 1 - 2;
+  LOG ("first size field at %u", first_size_field);
   // no need to push a stamp here.
 
   const unsigned size = c->size;
@@ -332,12 +329,15 @@ void External::push_shared_clause (uint32_t ss_idx, Clause *c) {
   
   // Finally we update the size fields accordingly;
   uint32_t updated_size = c->size;
-  if (compactable && id_long) {
+  if (compactable) {
     updated_size |= CLAUSE_SMALL;
-    updated_size |= ID_LONG;
+    if (id_long)
+      updated_size |= ID_LONG;
   }
-  ss.data[first_size_field] = static_cast<int> (updated_size);
+
+  ss[first_size_field] = static_cast<int> (updated_size);
   ss.push_back (static_cast<int> (updated_size), arena);
+  LOG (ss.begin (), static_cast<unsigned> (ss.end () - ss.begin ()), "shared stack now: ");
 }
 
 void External::create_shared_stack_and_push_clause (
@@ -347,15 +347,28 @@ void External::create_shared_stack_and_push_clause (
   const uint32_t ss_idx = shared_stacks.allocate ();
   assert (ss_idx <= UINT32_MAX);
 
-  SharedStack &ss = shared_stacks[ss_idx];
-  assert (!ss.data.stack);
+  WitnessStack &ss = shared_stacks[ss_idx];
+  assert (!ss.stack);
   // size cap | cube literals | 0 | es | idl | clause literals | es
   const unsigned initial_size = 2 + iwit_cube.size () + 3 + c->size + 1;
-  ss.data.allocate (initial_size, arena);
+  ss.allocate (initial_size, arena);
 
-  ss.backlinks = 0;
+  for (const auto &iwit : iwit_cube) {
+    const int ewit = internal->externalize (iwit);
+    assert (ewit);
 
+    ss.push_back (ewit, arena);
+
+    if (!marked (witness, ewit))
+      mark (witness, ewit);
+  }
+
+  // delimit witness cube by zero
+  ss.push_back (0, arena);
   push_shared_clause (ss_idx, c);
+
+  witness_order.push_back (0);
+  witness_order.push_back (static_cast<int> (ss_idx));
 }
 
 /*------------------------------------------------------------------------*/
@@ -425,19 +438,13 @@ inline void decode_size_field (const int size_field, bool &wit_embedded,
 // contain an arbitrary set of literals.  We are using the more general
 // witness reconstruction here which for instance would also work for
 // super-blocked or set-blocked clauses.
-/*
-void External::extend_shared_stack (int *p, unsigned uwit, ExtendStats &stats) {
+
+void External::extend_shared_stack (uint32_t ss_idx, ExtendStats &stats) {
   LOG ("Extending shared stack with witness cube");
-    
-  assert (!*(p - 2));
-  uint32_t ss_idx = static_cast<uint32_t> (*(p - 1));
-  SharedStack &ss = shared_stacks[ss_idx];
-
-  if (ss.empty ()) // Stale entry.
-    return;
-
+  WitnessStack &ss = shared_stacks[ss_idx];
+  LOG (ss.begin (), static_cast<unsigned> (ss.end () - ss.begin ()), "shared stack: ");
 #ifndef QUIET
-  stats.extension_size += ss.data.size ();
+  stats.extension_size += ss.size ();
 #endif
 
   bool satisfied = true;
@@ -446,22 +453,23 @@ void External::extend_shared_stack (int *p, unsigned uwit, ExtendStats &stats) {
 
   // first check the cube for being satisfied. Also check if this stack has been
   // already been scheduled for extension.
+  LOG ("witness cube:");
   while (*q) {
-    const int ewit = *q++;
-    const unsigned other_uwit = elit2ulit (ewit);
-    if (other_uwit != uwit &&
-        priority[other_uwit] &&
-        priority[other_uwit] <= ss.stamp) {
-      satisfied = true;
-      break;
-    } 
+    LOG ("%d", *q);
+    const int ewit = *q++; 
     // some witness falsified or unassigned
-    if (ival (ewit) != ewit)
+    if (ival (ewit) != ewit) {
       satisfied = false;
+      break;
+    }
+  }
+  while (*q) {
+    LOG ("%d", *q);
+    q++;
   }
 
   if (satisfied) {
-    LOG ("Shared stack clauses are skipped. (already scheduled or satisfied)");
+    LOG ("Witness cube already satisfied.");
     return;
   }
 
@@ -474,7 +482,7 @@ void External::extend_shared_stack (int *p, unsigned uwit, ExtendStats &stats) {
     q--; // q now points to the trailing size field
     bool wit_embedded, id_long;
     unsigned other_lits_size;
-    decode_size_field (q, wit_embedded, id_long, other_lits_size);
+    decode_size_field (*q, wit_embedded, id_long, other_lits_size);
     assert (!wit_embedded);
     assert (other_lits_size);
 
@@ -520,7 +528,7 @@ void External::extend_shared_stack (int *p, unsigned uwit, ExtendStats &stats) {
     }
   }
 }
-*/
+
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 // extend the next clause to be extended on the witness stack of ewit 
@@ -640,9 +648,13 @@ void External::extend () {
   auto begin = witness_order.begin ();
   assert (witness_order.size () % 2 == 0);
   while (p != begin) {
-    // TODO: lookahead one, if it is a zero extend shared stack instead
     const int blit = *--p;
     const int ewit = *--p;
+    if (!ewit) { // cube stack reference
+      uint32_t ss_idx = static_cast<uint32_t> (blit);
+      extend_shared_stack (ss_idx, stats);
+      continue;
+    }
     if (ival (blit) == blit || ival (ewit) == ewit) {
       const unsigned uwit = elit2ulit (ewit);
       skipped[uwit]++;
@@ -670,22 +682,17 @@ void External::extend () {
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
-/*
-bool External::traverse_shared_stack_backward (WitnessIterator &it, int *p, unsigned uwit) {
-  assert (!*(p - 2));
-  uint32_t ss_idx = static_cast<uint32_t> (*(p - 1));
-  SharedStack &ss = shared_stacks[ss_idx];
-  if (ss.empty ()) // State entry
-    return true;
+
+bool External::traverse_shared_stack_backward (WitnessIterator &it, uint32_t ss_idx) {
+  WitnessStack &ss = shared_stacks[ss_idx];
 
   vector<int> witness;
   auto q = ss.begin ();
 
+  // read the witness cube and store it into witness
   while (*q) {
     const int ewit = *q++;
     const unsigned other_uwit = elit2ulit (ewit);
-    if (other_uwit != uwit && priority[other_uwit] <= ss.stamp)
-      return true;
     witness.push_back (ewit);
   }
   
@@ -696,7 +703,7 @@ bool External::traverse_shared_stack_backward (WitnessIterator &it, int *p, unsi
     q--; // q now points to the trailing size field
     bool wit_embedded, id_long;
     unsigned other_lits_size;
-    decode_size_field (q, wit_embedded, id_long, other_lits_size);
+    decode_size_field (*q, wit_embedded, id_long, other_lits_size);
     assert (!wit_embedded);
     assert (other_lits_size);
 
@@ -730,21 +737,15 @@ bool External::traverse_shared_stack_backward (WitnessIterator &it, int *p, unsi
   return true;
 }
 
-bool External::traverse_shared_stack_forward (WitnessIterator &it, int *p, unsigned uwit) {
-  assert (!*p);
-  uint32_t ss_idx = static_cast<uint32_t> (*(p + 1));
-  SharedStack &ss = shared_stacks[ss_idx];
-  if (ss.empty ())
-    return true;
+bool External::traverse_shared_stack_forward (WitnessIterator &it, uint32_t ss_idx) {
+  
+  WitnessStack &ss = shared_stacks[ss_idx];
 
   vector<int> witness;
   auto q = ss.begin ();
 
   while (*q) {
     const int ewit = *q++;
-    const unsigned other_uwit = elit2ulit (ewit);
-    if (other_uwit != uwit && priority[other_uwit] <= ss.stamp)
-      return true;
     witness.push_back (ewit);
   }
 
@@ -754,7 +755,7 @@ bool External::traverse_shared_stack_forward (WitnessIterator &it, int *p, unsig
   while (q != end) {
     bool wit_embedded, id_long;
     unsigned other_lits_size;
-    decode_size_field (q, wit_embedded, id_long, other_lits_size);
+    decode_size_field (*q, wit_embedded, id_long, other_lits_size);
     assert (!wit_embedded);
     assert (other_lits_size);
 
@@ -765,7 +766,7 @@ bool External::traverse_shared_stack_forward (WitnessIterator &it, int *p, unsig
       id = static_cast<int64_t> ((upper << 32) | lower );
       q += 3;
     } else {
-      id = static_cast<uint32_t> (*q);
+      id = static_cast<uint32_t> (*(q + 1));
       q += 2;
     }
 
@@ -785,7 +786,6 @@ bool External::traverse_shared_stack_forward (WitnessIterator &it, int *p, unsig
   }
   return true;
 }
-*/
 
 bool External::traverse_witnesses_backward (WitnessIterator &it) {
   if (internal->unsat)
@@ -807,8 +807,21 @@ bool External::traverse_witnesses_backward (WitnessIterator &it) {
   auto p = witness_order.end ();
 
   while (p != witness_order.begin ()) {
-    --p; // skip blocking literal
+    --p; // skip blocking literal (or shared stack index, then wit is 0)
     const int ewit = *--p;
+
+    // Shared Stack case. ... 0 idx ...
+    //                        ^
+    if (!ewit) { 
+      const uint32_t ss_idx = static_cast<uint32_t> (*(p + 1));
+      if (!traverse_shared_stack_backward (it, ss_idx)) {
+        ws_index.clear ();
+        ws_index.shrink_to_fit ();
+        return false;
+      }
+      continue;
+    }
+    
     const unsigned uwit = elit2ulit (ewit);
     auto &stack = witness_stacks2[uwit];
 
@@ -869,6 +882,19 @@ bool External::traverse_witnesses_forward (WitnessIterator &it) {
   while (p != witness_order.end ()) {
     const int ewit = *p++;
     p++; // skip blocking literal
+    
+    // Shared Stack case. ... 0 idx ...
+    //                        ^
+    if (!ewit) { 
+      const uint32_t ss_idx = static_cast<uint32_t> (*(p - 1));
+      if (!traverse_shared_stack_forward (it, ss_idx)) {
+        ws_index.clear ();
+        ws_index.shrink_to_fit ();
+        return false;
+      }
+      continue;
+    }
+
     const unsigned uwit = elit2ulit (ewit);
     auto &stack = witness_stacks2[uwit];
 

@@ -157,31 +157,42 @@ inline void decode_size_field (const int size_field, bool &wit_embedded,
   other_lits_size = clause_small ? (encoded & SIZE_MASK) : encoded;
 }
 
-/*
-// NEW VERSION 
-void External::restore_shared_stack_c (int *p, RestoreStats &clauses) {
-  assert (!*p);
-  const uint32_t ss_idx = static_cast<uint32_t> (*(p + 1));
-  SharedStack &ss = shared_stacks[ss_idx];
-  assert (!ss.empty ());
-  assert (ss.backlinks);
 
+// NEW VERSION 
+void External::restore_shared_stack (uint32_t ss_idx, RestoreStats &clauses) {
+
+  WitnessStack &ss = shared_stacks[ss_idx];
+  assert (!ss.empty ());
+  LOG (ss.begin (), static_cast<unsigned> (ss.end () - ss.begin ()), "restoring shared stack: ");
   auto q = ss.begin ();
   auto end_of_stack = ss.end ();
+  bool restore_clauses = false;
   // first skip the cube segment (0 terminated)
-  while (*q++) 
-    continue;
+  while (*q) {
+    const int ewit = *q++;
+    if (marked (tainted, -ewit))
+      restore_clauses = true;
+  }
+  while (*q) {
+    q++;
+  }
+  q++;
+  if (!restore_clauses && !(internal->opts.restoreall == 2)) {
+    LOG ("untainted and not forced to restore all.");
+    return;
+  }
   // q now points to the first size field
   while (q != end_of_stack) {
+    LOG ("encoded size field: %d", *q);
     bool wit_embedded, id_long; 
     unsigned other_lits_size;
-    decode_size_field (p, wit_embedded, id_long, other_lits_size);
+    decode_size_field (*q, wit_embedded, id_long, other_lits_size);
     assert (!wit_embedded);
     
     int64_t id;
     if (id_long) {
       id = (static_cast<int64_t> (*(q + 1)) << 32) |
-          static_cast<uint32_t> (*(q + 2));
+            static_cast<uint32_t> (*(q + 2));
     } else {
       id = static_cast<uint32_t> (*(q + 1));
     }
@@ -205,15 +216,15 @@ void External::restore_shared_stack_c (int *p, RestoreStats &clauses) {
       clauses.satisfied++;
     } else {
       clauses.restored++;
-      restore_clause_c (begin, end, id, ss.stamp, wit_embedded, 0);
+      restore_clause (begin, end, id, false, 0); 
     }
     // es (idu) idl l1 ... lk es es2
     q += 1 + (id_long ? 2 : 1) + other_lits_size + 1;
   }
   // Finally clear the data
-  ss.data.clear (arena);
+  ss.clear (arena);
 }
-*/
+
 
 /* -------------------------------------------------------------------------- */
 
@@ -231,8 +242,7 @@ void External::restore_next (const int ewit, RestoreStats &clauses) {
     while (skipped--) {
       const int size_field = stack[idx];
     
-      decode_size_field (size_field, wit_embedded, id_long, other_lits_size);
-
+      decode_size_field (size_field, wit_embedded, id_long, other_lits_size);    
       // Skip the clause and move idx to the next clauses size field                 
       idx += (id_long ? 3 : 2) + other_lits_size + 1;
     }
@@ -246,8 +256,9 @@ void External::restore_next (const int ewit, RestoreStats &clauses) {
 
   int64_t id;
   if (id_long) {
-    id = (static_cast<int64_t> (*(p + 1)) << 32) |
-          static_cast<uint32_t> (*(p + 2));
+    const uint64_t upper = static_cast<uint32_t> (*(p + 1));
+    const uint64_t lower = static_cast<uint32_t> (*(p + 2));
+    id = static_cast<int64_t> ((upper << 32) | lower);
   } else {
     id = static_cast<uint32_t> (*(p + 1));
   }
@@ -327,16 +338,23 @@ void External::restore () {
   while (read != end) {
     const int ewit = *read++;
     const int blit = *read++;
-    // restore the corresponding clause!
+    if (!ewit) { // cube stack reference
+      const uint32_t ss_idx = static_cast<uint32_t> (blit);
+      restore_shared_stack (ss_idx, clauses);
+      continue;
+    }
+    // restore the corresponding clause
     if (internal->opts.restoreall == 2 || marked (tainted, -ewit)) { 
       restore_next (ewit, clauses);
       continue;
     }
 
-    const unsigned uwit = elit2ulit (ewit);
-    // no clause on this stack should have been restored yet
-    assert (!marked (restoring, ewit)); 
-    ++ws_index[uwit]; // skip this clause 
+    if (ewit) {
+      const unsigned uwit = elit2ulit (ewit);
+      // no clause on this stack should have been restored yet
+      assert (!marked (restoring, ewit)); 
+      ++ws_index[uwit]; // skip this clause   
+    }
     *write++ = ewit;
     *write++ = blit;
   }
@@ -411,166 +429,4 @@ void External::restore () {
   tainted.shrink_to_fit ();
 } 
 
-/*
-void External::restore () {
-  PROFILE_SCOPE (restore);
-  restoring = true;
-  internal->stats.restorations++;
-
-  RestoreStats clauses = {};
-
-  if (internal->opts.restoreall && tainted.empty ())
-    PHASE ("restore", internal->stats.restorations,
-           "forced to restore all clauses");
-
-#ifndef QUIET
-  {
-    unsigned numtainted = 0;
-    for (const auto b : tainted)
-      if (b)
-        numtainted++;
-
-    PHASE ("restore", internal->stats.restorations,
-           "starting with %u tainted literals %.0f%%", numtainted,
-           percent (numtainted, 2u * max_var));
-  }
-  { // TODO: remove this again after evaluation
-    internal->stats.restore_ws_size += witness_stacks.size ();
-    for (const auto &stack : witness_stacks)
-      if (stack.size ()) {
-        internal->stats.restore_nstacks++;
-        internal->stats.restore_nints += stack.size ();
-        internal->stats.restore_caps += stack.capacity ();
-      }
-  }
-#endif
-
-  if (internal->opts.restoreall == 2) {
-    restore_all (clauses);
-  } 
-  else if (!tainted_lits.empty ()) {
-    assert (ws_index.empty ());
-    assert (restore_cutoffs.empty ());
-    assert (priority.empty ());
-    ws_index.resize (witness_stacks.size ());
-    for (auto elit : tainted_lits) {
-      const unsigned uwit = elit2ulit (-elit);
-      LOG ("tainted literal %d (external) (%u unsigned)", elit, uwit);
-      //if (uwit >= witness_stacks.size ())
-      //  continue;
-      vector<int> &stack = witness_stacks[uwit];
-      LOG (stack, "witness_stack[%u]: ", uwit);
-      if (stack.empty ()) // TODO: That should not be possible
-        continue;
-
-      auto p = stack.begin ();
-      // Get time stamp of first clause on the corresp. witness stack
-      // 0 ts idu idl 0 l1 l2 ...
-      while (p != stack.end ()) {
-        assert (!*p);
-
-        if (*(p + 1)) { // regular clause
-          break;
-        }
-        LOG ("shared clause detected.");
-        // Shared stack: 0 0 0 pu pl 0
-        const uintptr_t ptr =
-            (static_cast<uintptr_t> (static_cast<uint32_t> (*(p + 3))) << 32) |
-                                     static_cast<uint32_t> (*(p + 4));
-
-        SharedStack *ss = reinterpret_cast<SharedStack *> (ptr);
-        
-        if (!ss->witness_cube.empty ())
-          break;
-        // TODO: can this happen? 
-        // Stale shared stack. Just skip over its witness-stack representation.
-        p += 5;
-      }
-      // Schedule with priority ts
-      if (p != stack.end ()) {
-        const uint32_t idx = p - stack.begin ();
-        const uint32_t ts = timestamp (stack, idx);
-        LOG ("restoration event to be scheduled begins at idx %u with time stamp %u", idx, ts);
-        assert (ts);
-        assert (!get_priority (uwit));
-        ws_index[uwit] = idx;
-        
-        set_priority (uwit, ts);
-        tainted_heap.push (uwit);
-        restore_cutoffs.push_back ({uwit, idx});
-        LOG ("pushed to heap...");
-      }      
-    }
-    tainted_lits.clear ();
-    tainted_lits.shrink_to_fit ();
-
-    // TODO: this does not account for shared stack sizes...
-    for (const auto &s : witness_stacks)
-      clauses.totalbytes += s.size () * sizeof (int);
-
-    propagate_tainting (clauses);
-    
-    // "resize" witness vector  
-    while (!witness.empty () && !witness.back ())
-      witness.pop_back ();
-    
-    // 'resize' witness stacks
-    while (!witness_stacks.empty () && witness_stacks.back ().empty ())
-      witness_stacks.pop_back ();
-    witness_stacks.shrink_to_fit ();
-    
-    ws_index.clear ();
-    ws_index.shrink_to_fit ();
-    restore_cutoffs.clear ();
-    restore_cutoffs.shrink_to_fit ();
-
-    assert (tainted_heap.empty ());    
-    //tainted_heap = RestoreHeap(PriorityLess(priority));
-
-    internal->stats.restore_total_bytes += clauses.totalbytes;
-    internal->stats.restore_seen_bytes += clauses.seenbytes;
-    restoring = false;
-  }
-
-  priority.clear();
-  priority.shrink_to_fit ();
-
-#ifndef QUIET
-  if (clauses.satisfied)
-    PHASE ("restore", internal->stats.restorations,
-           "removed %" PRId64 " satisfied %.0f%% of %" PRId64
-           " weakened clauses",
-           clauses.satisfied, percent (clauses.satisfied, clauses.weakened),
-           clauses.weakened);
-  else
-    PHASE ("restore", internal->stats.restorations,
-           "no satisfied clause removed out of %" PRId64
-           " weakened clauses",
-           clauses.weakened);
-
-  if (clauses.restored)
-    PHASE ("restore", internal->stats.restorations,
-           "restored %" PRId64 " clauses %.0f%% out of %" PRId64
-           " weakened clauses",
-           clauses.restored, percent (clauses.restored, clauses.weakened),
-           clauses.weakened);
-  else
-    PHASE ("restore", internal->stats.restorations,
-           "no clause restored out of %" PRId64 " weakened clauses",
-           clauses.weakened);
-  {
-    unsigned numtainted = 0;
-    for (const auto &b : tainted)
-      if (b)
-        numtainted++;
-
-    PHASE ("restore", internal->stats.restorations,
-           "finishing with %u tainted literals %.0f%%", numtainted,
-           percent (numtainted, 2u * max_var));
-  }
-#endif
-  tainted.clear ();
-  tainted.shrink_to_fit ();
-} 
-*/
 } // namespace CaDiCaL
