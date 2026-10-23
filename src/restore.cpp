@@ -269,8 +269,8 @@ void External::restore_next (const int ewit, RestoreStats &clauses) {
   }
 
   if (satisfied && !internal->opts.restoreflush) {
-    LOG (begin, static_cast<unsigned> (end - begin), 
-         "forced to not remove %d satisfied", satisfied);
+    //LOG (begin, end, 
+    //     "forced to not remove %d satisfied", satisfied);
     satisfied = 0;
   }
 

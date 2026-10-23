@@ -71,7 +71,7 @@ void External::push_clause_on_extension_stack (int wit, Clause *c) {
   // Remember the index of the first size field.
   stack.push_back (0, arena); // Will be updated in the end.
   const uint32_t first_size_field = stack.size () - 1;
-  LOG ("pushing time stamp %u", stamp);
+  
   // We can use the upper 3 bits for flagging if the clause has less than 
   // (1u << 29) - 1 litereals which is roughyl 536.9 million
   const unsigned size = c->size;
@@ -563,6 +563,7 @@ void External::extend () {
   while (p != begin) {
     // TODO: lookahead one, if it is a zero extend shared stack instead
     const int ewit = *--p;
+    LOG ("ival of ewit %d is %d", ewit, ival (ewit));
     if (ival (ewit) == ewit) {
       const unsigned uwit = elit2ulit (ewit);
       skipped[uwit]++;
