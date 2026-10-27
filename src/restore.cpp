@@ -57,47 +57,44 @@ static void u_unmark (vector<bool> &map, unsigned ulit) {
     map[ulit] = false;
 }
 /*------------------------------------------------------------------------*/ 
-void External::restore_clause (const int* begin,
-                               const int* end,
-                               const int64_t id, const bool wit_embedded,
-                               const int ewit) {
+void External::restore_clause (const int* begin, const int* end,
+                               const int64_t id,
+                               const int ewit, const int blit) {
   LOG ("restoring clause...");
-  //LOG (begin, static_cast<unsigned> (end - begin), "restoring external clause[%" PRId64 "]", id);
+  LOG (begin, static_cast<unsigned> (end - begin), "restoring external clause[%" PRId64 "]", id);
   
   assert (eclause.empty ());
   assert (id);
-  assert (!wit_embedded || ewit);
-  for (auto p = begin; p != end; p++) {
-    eclause.push_back (*p);
+
+  auto restore_lit = [this] (int elit) {
+    eclause.push_back (elit);
+
     if (internal->proof && internal->lrat) {
-      const auto &elit = *p;
       unsigned eidx = (elit > 0) + 2u * (unsigned) abs (elit);
       assert ((size_t) eidx < ext_units.size ());
-      const int64_t id = ext_units[eidx];
+      const int64_t unit_id = ext_units[eidx];
       bool added = ext_flags[abs (elit)];
-      if (id && !added) {
+      if (unit_id && !added) {
         ext_flags[abs (elit)] = true;
-        internal->lrat_chain.push_back (id);
+        internal->lrat_chain.push_back (unit_id);
       }
     }
-    int ilit = internalize (*p);
-    internal->add_original_lit (ilit), internal->stats.restored_literals++;
+
+    const int ilit = internalize (elit);
+    internal->add_original_lit (ilit);
+    internal->stats.restored_literals++;
+  };
+
+  for (auto p = begin; p != end; p++) {
+    restore_lit (*p);
   }
-  if (wit_embedded) {
+  if (blit) {
+    LOG ("adding blocking literal (external %d) back to the clause", blit);
+    restore_lit (blit);
+  }
+  if (ewit) {
     LOG ("adding witness (external %d) back to the clause", ewit);
-    eclause.push_back (ewit);
-    if (internal->proof && internal->lrat) {
-      unsigned eidx = (ewit > 0) + 2u * (unsigned) abs (ewit);
-      assert ((size_t) eidx < ext_units.size ());
-      const int64_t id = ext_units[eidx];
-      bool added = ext_flags[abs (ewit)];
-      if (id && !added) {
-        ext_flags[abs (ewit)] = true;
-        internal->lrat_chain.push_back (id);
-      }  
-    }
-    int ilit = internalize (ewit);
-    internal->add_original_lit (ilit), internal->stats.restored_literals++;
+    restore_lit (ewit);
   }
   if (internal->proof && internal->lrat) {
     for (const auto &elit : eclause) {
@@ -216,7 +213,7 @@ void External::restore_shared_stack (uint32_t ss_idx, RestoreStats &clauses) {
       clauses.satisfied++;
     } else {
       clauses.restored++;
-      restore_clause (begin, end, id, false, 0); 
+      restore_clause (begin, end, id, 0, 0); 
     }
     // es (idu) idl l1 ... lk es es2
     q += 1 + (id_long ? 2 : 1) + other_lits_size + 1;
@@ -229,9 +226,9 @@ void External::restore_shared_stack (uint32_t ss_idx, RestoreStats &clauses) {
 /* -------------------------------------------------------------------------- */
 
 
-void External::restore_next (const int ewit, RestoreStats &clauses) {
+void External::restore_next (const int ewit, const int blit, RestoreStats &clauses) {
   const unsigned uwit = elit2ulit (ewit);
-  WitnessStack &stack = witness_stacks2[uwit];
+  WitnessStack &stack = witness_stacks[uwit];
   assert(ws_index[uwit] < stack.size() - 2);
   bool wit_embedded, id_long;
   unsigned other_lits_size;
@@ -290,7 +287,7 @@ void External::restore_next (const int ewit, RestoreStats &clauses) {
     clauses.satisfied++;
   } else {
     clauses.restored++;
-    restore_clause (begin, end_of_lits, id, wit_embedded, ewit);
+    restore_clause (begin, end_of_lits, id, ewit, blit);
   }
   // idx now points to next clauses first size field
   const uint32_t idx = end_of_lits + 1 - stack.begin (); 
@@ -328,8 +325,8 @@ void External::restore () {
   assert (restore_cutoffs.empty ());
 
     
-  ws_index.resize (witness_stacks2.size ());
-  restoring.resize (witness_stacks2.size ());
+  ws_index.resize (witness_stacks.size ());
+  restoring.resize (witness_stacks.size ());
 
   auto read = witness_order.begin ();
   auto write = witness_order.begin (); 
@@ -345,7 +342,7 @@ void External::restore () {
     }
     // restore the corresponding clause
     if (internal->opts.restoreall == 2 || marked (tainted, -ewit)) { 
-      restore_next (ewit, clauses);
+      restore_next (ewit, blit, clauses);
       continue;
     }
 
@@ -358,13 +355,11 @@ void External::restore () {
     *write++ = ewit;
     *write++ = blit;
   }
-  //printf ("witness_order size before resize: %zu\n", witness_order.size ());
   witness_order.resize (write - witness_order.begin ());
-  //printf ("witness_order size after resize: %zu\n", witness_order.size ());
   //shrink_vector (witness_order);
 
   for (const auto &cutoff : restore_cutoffs) {
-    auto &stack = witness_stacks2[cutoff.uwit];
+    auto &stack = witness_stacks[cutoff.uwit];
     stack.truncate (cutoff.idx + 2, arena); // add two for the size and capacity fields
     stack.shrink_to_fit (arena);
     if (stack.empty ()) {
@@ -377,9 +372,9 @@ void External::restore () {
     witness.pop_back ();
   
   // 'resize' witness stacks
-  while (!witness_stacks2.empty () && witness_stacks2.back ().empty ())
-    witness_stacks2.pop_back ();
-  witness_stacks2.shrink_to_fit ();
+  while (!witness_stacks.empty () && witness_stacks.back ().empty ())
+    witness_stacks.pop_back ();
+  witness_stacks.shrink_to_fit ();
   
   ws_index.clear ();
   ws_index.shrink_to_fit ();

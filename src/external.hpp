@@ -103,8 +103,7 @@ public:
   SharedStackChunk shared_stacks;
 
   vector<int> witness_order;
-  vector<vector<int>> witness_stacks; // Reconstruction stacks for each witness.
-  vector<WitnessStack> witness_stacks2;
+  vector<WitnessStack> witness_stacks;
   vector<bool> restoring;
   vector<uint32_t> ws_index; // Indices into the witness stacks
   vector<uint32_t> skipped;
@@ -212,12 +211,12 @@ public:
   }
   /*----------------------------------------------------------------------*/
   //void push_clause_on_extension_stack (Clause *);
-  void push_clause_on_extension_stack (int wit, Clause *);
-  void push_clause_on_extension_stack (const int64_t id, int wit, 
+  void push_clause_on_extension_stack (int iwit, Clause *);
+  void push_clause_on_extension_stack (const int64_t id, int iwit, 
                                        const vector<int> &c);
-  void push_binary_clause_on_extension_stack (int64_t id, int wit,
+  void push_binary_clause_on_extension_stack (int64_t id, int iwit,
                                               int other);
-
+  void push_external_clause_on_extension_stack (const vector<int> &c, const vector<int> &w, int64_t id);
   /* ------------------------------------------------------------------------ */
   //void push_clause_on_extension_stack_c (int wit, Clause *c);
   //void push_binary_clause_on_extension_stack_c (int64_t id, int wit, int other);
@@ -235,12 +234,15 @@ public:
   void create_shared_stack_and_push_clause (const vector<int> &iwit_cube, 
     Clause *c);
 
+  void create_shared_stack_and_push_external_clause ( 
+    const vector<int> &clause, const vector<int> &ewit_cube, int64_t id);
+
   void extend_shared_stack (uint32_t ss_idx, ExtendStats &stats);
   int* extend_regular_entry (int *p, unsigned uwit, ExtendStats &stats);
   // The main 'extend' function which extends an internal assignment to an
   // external assignment using the extension stack (and sets 'extended').
   //
-  int extend_next (const int ewit, ExtendStats &stats);
+  int extend_next (const int ewit, const int blit, ExtendStats &stats);
   void extend ();
   //void extend_c ();
   void conclude_sat ();
@@ -288,15 +290,14 @@ public:
   };
 
   // Restore a clause, which was pushed on the extension stack.
-  void restore_clause (const int *begin,
-                       const int *end,
-                       const int64_t id, const bool wit_embedded, 
-                       const int ewit);
+  void restore_clause (const int *begin, const int *end,
+                       const int64_t id,
+                       const int ewit, const int blit);
   
   // Restore all clauses on a shared stack
   void restore_shared_stack (uint32_t ss_idx, RestoreStats &clauses);
 
-  void restore_next (const int ewit, RestoreStats &clauses);
+  void restore_next (const int ewit, const int blit, RestoreStats &clauses);
 
   // Entry to restore
   void restore ();
