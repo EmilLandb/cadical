@@ -170,10 +170,9 @@
   STATISTIC (eliminate_xor,          2, percent, "%", eliminate_gates) \
   STATISTIC (eliminations,           1, INTERVAL, "", interval) \
   STATISTIC (extended,               1, relative, "per", weakened) \
-  STATISTIC (extend_blocked,         1, relative, "per", weakened) \
+  STATISTIC (extend_clauses_blocked, 2, relative, "per", weakened) \
+  STATISTIC (extend_clauses_read,    2, relative, "per", weakened) \
   STATISTIC (extensions,             1, relative, "per", searches) \
-  STATISTIC (extension_events,       2, relative, "per", extended) \
-  STATISTIC (extension_heap_pushed,  2, percent, "%", extension_events) \
   STATISTIC (factor_added_clauses,   2, relative, "per", factored) \
   STATISTIC (factor_added_literals,  2, relative, "per", factored) \
   STATISTIC (factored,               1, percent, "%", vars) \
@@ -256,13 +255,6 @@
   STATISTIC (restart_levels,         2, relative, "per", restart) \
   STATISTIC (restart_stable,         2, percent, "%", restart) \
   STATISTIC (restorations,           1, relative, "per", searches) \
-  STATISTIC (restore_ws_size,        0, relative, "per", restorations) \
-  STATISTIC (restore_nstacks,        0, percent, "%", restore_ws_size) \
-  STATISTIC (restore_nints,          0, relative, "per", restore_nstacks) \
-  STATISTIC (restore_caps,           0, relative, "per", restore_nstacks) \
-  STATISTIC (restore_compacted,      0, NOTHING, 0, 0) \
-  STATISTIC (restore_seen_bytes,     0, percent, "%", restore_total_bytes) \
-  STATISTIC (restore_total_bytes,    0, NOTHING, 0, 0) \
   STATISTIC (restored_clauses,       1, relative, "per", restorations) \
   STATISTIC (restored_literals,      2, relative, "per", restored_clauses) \
   STATISTIC (reused,                 1, relative, "per", restart) \
@@ -409,7 +401,11 @@
   METRIC (walk_warmup_dummy,         2, relative, "per", walk_warmup) \
   METRIC (walk_warmup_propagate,     2, relative, "per", walk_warmup) \
   STATISTIC (weakened,               1, percent, "%", clauses) \
-  STATISTIC (weakened_lengths,       2, relative, "per", weakened)
+  STATISTIC (weakened_cube,          2, percent, "%", weakened) \
+  STATISTIC (weakened_lengths,       2, relative, "per", weakened) \
+  STATISTIC (ws_created,             2, relative, "per", weakened) \
+  STATISTIC (ws_freed,               2, relative, "per", ws_truncated) \
+  STATISTIC (ws_truncated,           2, relative, "per", ws_created) \
 
 // clang-format on
 

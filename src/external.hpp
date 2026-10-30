@@ -108,13 +108,6 @@ public:
   vector<uint32_t> ws_index; // Indices into the witness stacks
   vector<uint32_t> skipped;
   
-  struct RestoreCutoff {
-    unsigned uwit;
-    uint32_t idx;
-  };
-  
-  vector<RestoreCutoff> restore_cutoffs;
-
   vector<bool> witness; // Literal witness on extension stack.
   vector<bool> tainted; // Literal tainted in adding literals.
 
@@ -210,7 +203,6 @@ public:
     return e2i.find_or_default (elit, 0);
   }
   /*----------------------------------------------------------------------*/
-  //void push_clause_on_extension_stack (Clause *);
   void push_clause_on_extension_stack (int iwit, Clause *);
   void push_clause_on_extension_stack (const int64_t id, int iwit, 
                                        const vector<int> &c);
@@ -218,33 +210,28 @@ public:
                                               int other);
   void push_external_clause_on_extension_stack (const vector<int> &c, const vector<int> &w, int64_t id);
   /* ------------------------------------------------------------------------ */
-  //void push_clause_on_extension_stack_c (int wit, Clause *c);
-  //void push_binary_clause_on_extension_stack_c (int64_t id, int wit, int other);
-  /* ------------------------------------------------------------------------ */
+  uint32_t create_cube_stack (const vector<int> &iwit_cube);
 
-
-  struct ExtendStats {
-    int64_t extension_size, events, pushed, updated, flipped, extend_blocked;
-  };
-
-  uint32_t create_shared_stack (const vector<int> &iwit_cube);
-
-  void push_shared_clause (uint32_t ss_idx, Clause *c);
-
-  void create_shared_stack_and_push_clause (const vector<int> &iwit_cube, 
+  void push_cube_clause (uint32_t ss_idx, Clause *c);
+  
+  void create_cube_stack_and_push_clause (const vector<int> &iwit_cube, 
     Clause *c);
 
-  void create_shared_stack_and_push_external_clause ( 
-    const vector<int> &clause, const vector<int> &ewit_cube, int64_t id);
+  void create_cube_stack_and_push_external_clause ( const vector<int> &clause, 
+    const vector<int> &ewit_cube, int64_t id);
+  /* ------------------------------------------------------------------------ */
+  
+  struct ExtendStats {
+    int64_t extension_size, updated, flipped, extend_blocked, clauses_read;
+  };
 
-  void extend_shared_stack (uint32_t ss_idx, ExtendStats &stats);
-  int* extend_regular_entry (int *p, unsigned uwit, ExtendStats &stats);
+  void extend_cube_stack (uint32_t ss_idx, ExtendStats &stats);
+
   // The main 'extend' function which extends an internal assignment to an
-  // external assignment using the extension stack (and sets 'extended').
+  // external assignment using the witness stacks (and sets 'extended').
   //
-  int extend_next (const int ewit, const int blit, ExtendStats &stats);
   void extend ();
-  //void extend_c ();
+
   void conclude_sat ();
 
   /*----------------------------------------------------------------------*/
@@ -285,8 +272,8 @@ public:
   void push_id_on_extension_stack (int ewit, int64_t id);
 
   struct RestoreStats {
-    int64_t weakened, satisfied, restored, removed, 
-            seenbytes, totalbytes, compacted;
+    int64_t read, witness_skipped, 
+            satisfied, restored;
   };
 
   // Restore a clause, which was pushed on the extension stack.
@@ -295,9 +282,7 @@ public:
                        const int ewit, const int blit);
   
   // Restore all clauses on a shared stack
-  void restore_shared_stack (uint32_t ss_idx, RestoreStats &clauses);
-
-  void restore_next (const int ewit, const int blit, RestoreStats &clauses);
+  void restore_cube_stack (uint32_t ss_idx, RestoreStats &clauses);
 
   // Entry to restore
   void restore ();
@@ -470,8 +455,8 @@ public:
 
   bool traverse_all_frozen_units_as_clauses (ClauseIterator &);
   bool traverse_all_non_frozen_units_as_witnesses (WitnessIterator &);
-  bool traverse_shared_stack_backward (WitnessIterator &it, uint32_t ss_idx);
-  bool traverse_shared_stack_forward (WitnessIterator &it, uint32_t ss_idx);
+  bool traverse_cube_stack_backward (WitnessIterator &it, uint32_t ss_idx);
+  bool traverse_cube_stack_forward (WitnessIterator &it, uint32_t ss_idx);
   bool traverse_witnesses_backward (WitnessIterator &);
   bool traverse_witnesses_forward (WitnessIterator &);
 

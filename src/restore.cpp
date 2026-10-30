@@ -3,7 +3,7 @@
 namespace CaDiCaL {
 
 /*------------------------------------------------------------------------*/
-
+// TODO: This needs revision
 // In incremental solving after a first call to 'solve' has finished and
 // before calling the internal 'solve' again incrementally we have to
 // restore clauses which have the negation of a literal as a witness literal
@@ -50,17 +50,31 @@ static constexpr uint32_t CLAUSE_SMALL = 1u << 31;
 static constexpr uint32_t EMBEDDED     = 1u << 30;
 static constexpr uint32_t ID_LONG     = 1u << 29;
 static constexpr uint32_t SIZE_MASK   = (1u << 29) - 1;
-/*------------------------------------------------------------------------*/
 
-static void u_unmark (vector<bool> &map, unsigned ulit) {
-  if (ulit < map.size ())
-    map[ulit] = false;
+static inline void decode_size_field (const int size_field, bool &wit_embedded, 
+                               bool &id_long, unsigned &other_lits_size) {
+  assert (size_field);
+
+  const uint32_t encoded = static_cast<uint32_t> (size_field);
+  const bool clause_small = encoded & CLAUSE_SMALL;
+
+  wit_embedded = clause_small && (encoded & EMBEDDED);
+  id_long = !clause_small || (encoded & ID_LONG);
+  other_lits_size = clause_small ? (encoded & SIZE_MASK) : encoded;
 }
+
+static inline int64_t decode_id (const int *p, const bool id_long) {
+  if (!id_long)
+    return static_cast<uint32_t> (*(p + 1));
+  const uint64_t upper = static_cast<uint32_t> (*(p + 1));
+  const uint64_t lower = static_cast<uint32_t> (*(p + 2));
+  return static_cast<int64_t> ((upper << 32) | lower);
+}
+
 /*------------------------------------------------------------------------*/ 
 void External::restore_clause (const int* begin, const int* end,
                                const int64_t id,
                                const int ewit, const int blit) {
-  LOG ("restoring clause...");
   LOG (begin, static_cast<unsigned> (end - begin), "restoring external clause[%" PRId64 "]", id);
   
   assert (eclause.empty ());
@@ -105,59 +119,8 @@ void External::restore_clause (const int* begin, const int* end,
   eclause.clear ();
   internal->stats.restored_clauses++;
 }
-/*
-void External::restore_clause (const vector<int>::const_iterator &begin,
-                               const vector<int>::const_iterator &end,
-                               const int64_t id, const bool wit_embedded,
-                               const int ewit) {
-  LOG (begin, end, "restoring external clause[%" PRId64 "]", id);
-  assert (eclause.empty ());
-  assert (id);
-  for (auto p = begin; p != end; p++) {
-    eclause.push_back (*p);
-    if (internal->proof && internal->lrat) {
-      const auto &elit = *p;
-      unsigned eidx = (elit > 0) + 2u * (unsigned) abs (elit);
-      assert ((size_t) eidx < ext_units.size ());
-      const int64_t id = ext_units[eidx];
-      bool added = ext_flags[abs (elit)];
-      if (id && !added) {
-        ext_flags[abs (elit)] = true;
-        internal->lrat_chain.push_back (id);
-      }
-    }
-    int ilit = internalize (*p);
-    internal->add_original_lit (ilit), internal->stats.restored_literals++;
-    if (internal->opts.restoreall != 2)
-      decide_scheduling (*p, timestamp);
-  }
-  if (internal->proof && internal->lrat) {
-    for (const auto &elit : eclause) {
-      ext_flags[abs (elit)] = false;
-    }
-  }
-  internal->finish_added_clause_with_id (id, true);
-  eclause.clear ();
-  internal->stats.restored_clauses++;
-}
-*/
-/* -------------------------------------------------------------------------- */
-inline void decode_size_field (const int size_field, bool &wit_embedded, 
-                               bool &id_long, unsigned &other_lits_size) {
-  assert (size_field);
 
-  const uint32_t encoded = static_cast<uint32_t> (size_field);
-  const bool clause_small = encoded & CLAUSE_SMALL;
-
-  wit_embedded = clause_small && (encoded & EMBEDDED);
-  id_long = !clause_small || (encoded & ID_LONG);
-  other_lits_size = clause_small ? (encoded & SIZE_MASK) : encoded;
-}
-
-
-// NEW VERSION 
-void External::restore_shared_stack (uint32_t ss_idx, RestoreStats &clauses) {
-
+void External::restore_cube_stack (uint32_t ss_idx, RestoreStats &clauses) {
   WitnessStack &ss = shared_stacks[ss_idx];
   assert (!ss.empty ());
   LOG (ss.begin (), static_cast<unsigned> (ss.end () - ss.begin ()), "restoring shared stack: ");
@@ -176,25 +139,20 @@ void External::restore_shared_stack (uint32_t ss_idx, RestoreStats &clauses) {
   q++;
   if (!restore_clauses && !(internal->opts.restoreall == 2)) {
     LOG ("untainted and not forced to restore all.");
+    clauses.witness_skipped++;
     return;
   }
   // q now points to the first size field
   while (q != end_of_stack) {
-    LOG ("encoded size field: %d", *q);
+    clauses.read++;
     bool wit_embedded, id_long; 
     unsigned other_lits_size;
     decode_size_field (*q, wit_embedded, id_long, other_lits_size);
     assert (!wit_embedded);
     
-    int64_t id;
-    if (id_long) {
-      id = (static_cast<int64_t> (*(q + 1)) << 32) |
-            static_cast<uint32_t> (*(q + 2));
-    } else {
-      id = static_cast<uint32_t> (*(q + 1));
-    }
-
+    int64_t id = decode_id (q, id_long);
     LOG ("id computed: %" PRId64 "(%s)", id, id_long ? "long" : "short");
+
     auto lit = q + (id_long ? 3 : 2); // es (idu) idl l1 
     auto begin = lit;
     auto end = lit + other_lits_size;
@@ -220,81 +178,9 @@ void External::restore_shared_stack (uint32_t ss_idx, RestoreStats &clauses) {
   }
   // Finally clear the data
   ss.clear (arena);
+  internal->stats.ws_freed++;
 }
 
-
-/* -------------------------------------------------------------------------- */
-
-
-void External::restore_next (const int ewit, const int blit, RestoreStats &clauses) {
-  const unsigned uwit = elit2ulit (ewit);
-  WitnessStack &stack = witness_stacks[uwit];
-  assert(ws_index[uwit] < stack.size() - 2);
-  bool wit_embedded, id_long;
-  unsigned other_lits_size;
-
-  if (!marked (restoring, ewit)) { // This is the first clause to be restored
-    uint32_t skipped = ws_index[uwit]; // Skip this many entries
-    uint32_t idx = 0;
-    while (skipped--) {
-      const int size_field = stack[idx];
-    
-      decode_size_field (size_field, wit_embedded, id_long, other_lits_size);    
-      // Skip the clause and move idx to the next clauses size field                 
-      idx += (id_long ? 3 : 2) + other_lits_size + 1;
-    }
-    ws_index[uwit] = idx;
-    restore_cutoffs.push_back ({uwit, idx});
-    mark (restoring, ewit);
-  }
-  // Now restore the next clause ...
-  auto p = stack.begin () + ws_index[uwit];
-  decode_size_field (*p, wit_embedded, id_long, other_lits_size);
-
-  int64_t id;
-  if (id_long) {
-    const uint64_t upper = static_cast<uint32_t> (*(p + 1));
-    const uint64_t lower = static_cast<uint32_t> (*(p + 2));
-    id = static_cast<int64_t> ((upper << 32) | lower);
-  } else {
-    id = static_cast<uint32_t> (*(p + 1));
-  }
-  LOG ("id computed: %" PRId64 "(%s)", id, id_long ? "long" : "short");
-  
-  auto lit = p + (id_long ? 3 : 2); // idx is of the first literal now
-  auto begin = lit;
-  auto end_of_lits = lit + other_lits_size;
-
-  int satisfied = 0;
-  while (lit != end_of_lits) {
-    if (!satisfied && fixed (*lit) > 0)
-      satisfied = *lit;
-    ++lit;
-  }
-
-  if (!satisfied && wit_embedded) {
-    if (fixed (ewit) > 0)
-      satisfied = ewit;
-  }
-
-  if (satisfied && !internal->opts.restoreflush) {
-    LOG (begin, static_cast<unsigned> (end_of_lits - begin), 
-         "forced to not remove %d satisfied", satisfied);
-    satisfied = 0;
-  }
-
-  if (satisfied) {
-    clauses.satisfied++;
-  } else {
-    clauses.restored++;
-    restore_clause (begin, end_of_lits, id, ewit, blit);
-  }
-  // idx now points to next clauses first size field
-  const uint32_t idx = end_of_lits + 1 - stack.begin (); 
-  ws_index[uwit] = idx;
-} 
-
-// NEW VERSION // _c
 void External::restore () {
   PROFILE_SCOPE (restore);
   internal->stats.restorations++;
@@ -322,12 +208,13 @@ void External::restore () {
     return;
   
   assert (ws_index.empty ());
-  assert (restore_cutoffs.empty ());
+  
+  struct RestoreCutoff { int ewit; uint32_t idx;};
+  vector<RestoreCutoff> restore_cutoffs;
 
-    
+  // We will eventually touch this for every existing witness.
   ws_index.resize (witness_stacks.size ());
-  restoring.resize (witness_stacks.size ());
-
+  
   auto read = witness_order.begin ();
   auto write = witness_order.begin (); 
   auto end = witness_order.end ();
@@ -337,20 +224,81 @@ void External::restore () {
     const int blit = *read++;
     if (!ewit) { // cube stack reference
       const uint32_t ss_idx = static_cast<uint32_t> (blit);
-      restore_shared_stack (ss_idx, clauses);
+      restore_cube_stack (ss_idx, clauses);
       continue;
     }
+
     // restore the corresponding clause
     if (internal->opts.restoreall == 2 || marked (tainted, -ewit)) { 
-      restore_next (ewit, blit, clauses);
+      const unsigned uwit = elit2ulit (ewit);
+      WitnessStack &stack = witness_stacks[uwit];
+      LOG (stack.begin (), static_cast<unsigned> (stack.end () - stack.begin ()), "stack now: ");
+      // TODO: change the stack layout so that size ignores cap and size field.
+      assert (ws_index[uwit] < stack.size () - 2); 
+      bool wit_embedded, id_long;
+      unsigned other_lits_size;
+
+      clauses.read++;
+
+      if (!marked (restoring, ewit)) { // First clause to be restored
+        uint32_t skipped = ws_index[uwit];
+        LOG ("skipping %u many clauses before restoring", skipped);
+        uint32_t idx = 0;
+        while (skipped--) {
+          const int size_field = stack[idx];
+          decode_size_field (size_field, wit_embedded, id_long, other_lits_size);
+          idx += (id_long ? 3 : 2) + other_lits_size + 1; // Skip clause
+        }
+        ws_index[uwit] = idx;
+        restore_cutoffs.push_back ({ewit, idx});
+        mark (restoring, ewit);
+      }
+      // Now restore the next clause
+      auto p = stack.begin () + ws_index[uwit];
+      decode_size_field (*p, wit_embedded, id_long, other_lits_size);
+
+      int64_t id = decode_id (p, id_long);
+      LOG ("id computed: %" PRId64 "(%s)", id, id_long ? "long" : "short");
+
+      auto lit = p + (id_long ? 3 : 2); // idx of first literal
+      auto begin = lit;
+      auto end_of_lits = lit + other_lits_size;
+      int satisfied = 0;
+      while (lit != end_of_lits) {
+        if (!satisfied && fixed (*lit) > 0)
+          satisfied = *lit;
+        ++lit;
+      }
+
+      if (!satisfied && wit_embedded) {
+        if (fixed (ewit) > 0)
+          satisfied = ewit;
+      }
+
+      if (satisfied && !internal->opts.restoreflush) {
+        LOG (begin, static_cast<unsigned> (end_of_lits - begin),
+            "forced to not remove %d satisfied", satisfied);
+        satisfied = 0;
+      }
+
+      if (satisfied) {
+        clauses.satisfied++;
+      } else {
+        clauses.restored++;
+        restore_clause (begin, end_of_lits, id, ewit, blit);
+      }
+      // update index
+      ws_index[uwit] = end_of_lits + 1 - stack.begin ();
+
       continue;
     }
 
     if (ewit) {
-      const unsigned uwit = elit2ulit (ewit);
       // no clause on this stack should have been restored yet
       assert (!marked (restoring, ewit)); 
-      ++ws_index[uwit]; // skip this clause   
+      const unsigned uwit = elit2ulit (ewit);
+      ++ws_index[uwit]; // skip this clause
+      clauses.witness_skipped++;   
     }
     *write++ = ewit;
     *write++ = blit;
@@ -359,19 +307,20 @@ void External::restore () {
   //shrink_vector (witness_order);
 
   for (const auto &cutoff : restore_cutoffs) {
-    auto &stack = witness_stacks[cutoff.uwit];
+    const unsigned uwit = elit2ulit (cutoff.ewit);
+    auto &stack = witness_stacks[uwit];
     stack.truncate (cutoff.idx + 2, arena); // add two for the size and capacity fields
     stack.shrink_to_fit (arena);
+    internal->stats.ws_truncated++;
     if (stack.empty ()) {
-      u_unmark (witness, cutoff.uwit);
+      internal->stats.ws_freed++;
+      unmark (witness, cutoff.ewit);
     }
   }
 
-  // "resize" witness vector  
   while (!witness.empty () && !witness.back ())
     witness.pop_back ();
   
-  // 'resize' witness stacks
   while (!witness_stacks.empty () && witness_stacks.back ().empty ())
     witness_stacks.pop_back ();
   witness_stacks.shrink_to_fit ();
@@ -383,32 +332,29 @@ void External::restore () {
   restoring.clear ();
   restoring.shrink_to_fit ();
 
-  internal->stats.restore_total_bytes += clauses.totalbytes;
-  internal->stats.restore_seen_bytes += clauses.seenbytes;
-
 #ifndef QUIET
   if (clauses.satisfied)
     PHASE ("restore", internal->stats.restorations,
            "removed %" PRId64 " satisfied %.0f%% of %" PRId64
-           " weakened clauses",
-           clauses.satisfied, percent (clauses.satisfied, clauses.weakened),
-           clauses.weakened);
+           " read clauses",
+           clauses.satisfied, percent (clauses.satisfied, clauses.read),
+           clauses.read);
   else
     PHASE ("restore", internal->stats.restorations,
            "no satisfied clause removed out of %" PRId64
-           " weakened clauses",
-           clauses.weakened);
+           " read clauses",
+           clauses.read);
 
   if (clauses.restored)
     PHASE ("restore", internal->stats.restorations,
            "restored %" PRId64 " clauses %.0f%% out of %" PRId64
-           " weakened clauses",
-           clauses.restored, percent (clauses.restored, clauses.weakened),
-           clauses.weakened);
+           " read clauses",
+           clauses.restored, percent (clauses.restored, clauses.read),
+           clauses.read);
   else
     PHASE ("restore", internal->stats.restorations,
-           "no clause restored out of %" PRId64 " weakened clauses",
-           clauses.weakened);
+           "no clause restored out of %" PRId64 " read clauses",
+           clauses.read);
   {
     unsigned numtainted = 0;
     for (const auto &b : tainted)

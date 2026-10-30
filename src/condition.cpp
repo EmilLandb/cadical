@@ -784,25 +784,13 @@ long Internal::condition_round (long delta) {
       // TODO find a way to shrink the autarky part or some other way to
       // avoid pushing too many literals on the extension stack.
       //
-      /*
-      external->push_zero_on_extension_stack ();
-      for (const auto &lit : trail)
-        if (is_autarky_literal (lit))
-          external->push_witness_literal_on_extension_stack (lit);
-      if (proof)
-        proof->weaken_minus (c);
-      external->push_clause_on_extension_stack (c);
-      mark_garbage (c);
-      */
       vector<int> wits;
       for (const auto &lit : trail)
           if (is_autarky_literal (lit))
             wits.push_back (lit);
       if (proof)
         proof->weaken_minus (c);
-      uint32_t idx = external->create_shared_stack (wits);
-      external->push_shared_clause (idx, c);
-      //external->create_shared_stack_and_push_clause (wits, c);
+      external->create_cube_stack_and_push_clause (wits, c);
       wits.clear ();
       mark_garbage (c);
 
