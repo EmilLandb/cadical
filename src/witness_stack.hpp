@@ -361,7 +361,7 @@ struct WitnessStack {
 };
 
 
-struct SharedStackChunk {
+struct CubeStackChunk {
 	std::vector<WitnessStack> stacks;
 	uint32_t free_list = UINT32_MAX;
 

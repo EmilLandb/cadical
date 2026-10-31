@@ -97,18 +97,17 @@ public:
 
   bool extended; // Have been extended.
   bool concluded;
-  vector<int> extension; // Solution reconstruction extension stack.
 
-  WitnessArena arena;
-  SharedStackChunk shared_stacks;
+  WitnessArena arena; // Memory management of witness stacks
+  CubeStackChunk cube_stacks; // Vector + free list for cube stack references.
 
-  vector<int> witness_order;
+  vector<int> witness_order; // Sequence of single witnesses/cube references.
   vector<WitnessStack> witness_stacks;
-  vector<bool> restoring;
   vector<uint32_t> ws_index; // Indices into the witness stacks
-  vector<uint32_t> skipped;
+  vector<bool> restoring; 
+  vector<uint32_t> skipped; // Number of skipped clauses for a given witness
   
-  vector<bool> witness; // Literal witness on extension stack.
+  vector<bool> witness; // Non-emptyness flag for witness stacks
   vector<bool> tainted; // Literal tainted in adding literals.
 
   vector<bool> ervars; // Variables added through Extended Resolution.
@@ -203,12 +202,13 @@ public:
     return e2i.find_or_default (elit, 0);
   }
   /*----------------------------------------------------------------------*/
-  void push_clause_on_extension_stack (int iwit, Clause *);
-  void push_clause_on_extension_stack (const int64_t id, int iwit, 
+  void push_clause_on_witness_stack (int iwit, Clause *);
+  void push_clause_on_witness_stack (const int64_t id, int iwit, 
                                        const vector<int> &c);
-  void push_binary_clause_on_extension_stack (int64_t id, int iwit,
+  void push_binary_clause_on_witness_stack (int64_t id, int iwit,
                                               int other);
-  void push_external_clause_on_extension_stack (const vector<int> &c, const vector<int> &w, int64_t id);
+  void push_external_clause_on_witness_stack (const vector<int> &c, 
+                                            const vector<int> &w, int64_t id);
   /* ------------------------------------------------------------------------ */
   uint32_t create_cube_stack (const vector<int> &iwit_cube);
 
@@ -220,7 +220,9 @@ public:
   void create_cube_stack_and_push_external_clause ( const vector<int> &clause, 
     const vector<int> &ewit_cube, int64_t id);
   /* ------------------------------------------------------------------------ */
-  
+    void push_external_clause_and_witness_on_extension (
+      const vector<int> &clause, const vector<int> &witness, int64_t id);
+  /* ------------------------------------------------------------------------ */
   struct ExtendStats {
     int64_t extension_size, updated, flipped, extend_blocked, clauses_read;
   };
@@ -265,26 +267,17 @@ public:
   }
 
   /*----------------------------------------------------------------------*/
-
-  void push_external_clause_and_witness_on_extension_stack (
-      const vector<int> &clause, const vector<int> &witness, int64_t id);
-
-  void push_id_on_extension_stack (int ewit, int64_t id);
-
   struct RestoreStats {
     int64_t read, witness_skipped, 
             satisfied, restored;
   };
 
-  // Restore a clause, which was pushed on the extension stack.
   void restore_clause (const int *begin, const int *end,
                        const int64_t id,
                        const int ewit, const int blit);
   
-  // Restore all clauses on a shared stack
   void restore_cube_stack (uint32_t ss_idx, RestoreStats &clauses);
 
-  // Entry to restore
   void restore ();
 
   bool is_witness (int);

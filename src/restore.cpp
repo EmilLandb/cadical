@@ -121,9 +121,8 @@ void External::restore_clause (const int* begin, const int* end,
 }
 
 void External::restore_cube_stack (uint32_t ss_idx, RestoreStats &clauses) {
-  WitnessStack &ss = shared_stacks[ss_idx];
+  WitnessStack &ss = cube_stacks[ss_idx];
   assert (!ss.empty ());
-  LOG (ss.begin (), static_cast<unsigned> (ss.end () - ss.begin ()), "restoring shared stack: ");
   auto q = ss.begin ();
   auto end_of_stack = ss.end ();
   bool restore_clauses = false;
@@ -366,6 +365,10 @@ void External::restore () {
            percent (numtainted, 2u * max_var));
   }
 #endif
+
+  internal->stats.restore_clauses_read += clauses.read;
+  internal->stats.restore_wit_skipped += clauses.witness_skipped;
+
   tainted.clear ();
   tainted.shrink_to_fit ();
 } 

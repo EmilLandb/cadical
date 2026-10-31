@@ -29,9 +29,9 @@ static inline void decode_size_field (const int size_field, bool &wit_embedded,
 // clause to this stack.  First the blocking or eliminated literal is added,
 // and then the rest of the clause.
 /* -------------------------------------------------------------------------- */
-void External::push_clause_on_extension_stack (int iwit, Clause *c) {
+void External::push_clause_on_witness_stack (int iwit, Clause *c) {
   assert (iwit);
-  LOG (c, "Pushing on extension stack");
+  LOG (c, "Pushing on witness stack %d (ilit)", iwit);
   internal->stats.weakened++;
   internal->stats.weakened_lengths += c->size;
   
@@ -119,12 +119,12 @@ void External::push_clause_on_extension_stack (int iwit, Clause *c) {
   witness_order.push_back (blit);
 }
 
-void External::push_clause_on_extension_stack (const int64_t id, int iwit, const vector<int> &c) {
+void External::push_clause_on_witness_stack (const int64_t id, int iwit, const vector<int> &c) {
   assert (iwit);
   assert (id > 0);
   assert (c.size ());
 
-  LOG (c.begin (), c.end (), "Pushing clause on extension stack");
+  LOG (c.begin (), c.end (), "Pushing clause on witness stack %d (ilit)", iwit);
   internal->stats.weakened++;
   
   const unsigned size = c.size ();
@@ -213,9 +213,9 @@ void External::push_clause_on_extension_stack (const int64_t id, int iwit, const
   witness_order.push_back (blit);
 }
 
-void External::push_binary_clause_on_extension_stack (int64_t id, int iwit, 
+void External::push_binary_clause_on_witness_stack (int64_t id, int iwit, 
                                                       int other) {
-  LOG ("Pushing binary clause[%" PRId64 "] %d %d on extension stack", id, iwit, other);
+  LOG ("Pushing binary clause[%" PRId64 "] %d %d on witness stack %d (ilit)", id, iwit, other, iwit);
   internal->stats.weakened++;
   internal->stats.weakened_lengths += 2;
 
@@ -282,13 +282,13 @@ void External::push_binary_clause_on_extension_stack (int64_t id, int iwit,
 // create_shared_stack_and_push_clause can be used.
 //
 uint32_t External::create_cube_stack (const vector<int> &iwit_cube) {
-  LOG (iwit_cube, "creating shared stack for witness cube ");
-  const uint32_t ss_idx = shared_stacks.allocate ();
+  LOG (iwit_cube, "Creating cube stack for witness cube ");
+  const uint32_t ss_idx = cube_stacks.allocate ();
   assert (ss_idx <= UINT32_MAX);
 
   internal->stats.ws_created++;
 
-  WitnessStack &ss = shared_stacks[ss_idx];
+  WitnessStack &ss = cube_stacks[ss_idx];
 
   const unsigned initial_size = iwit_cube.size() + 3; // size, cap, cube, 0
   ss.allocate (initial_size, arena);
@@ -317,9 +317,9 @@ void External::push_cube_clause (uint32_t ss_idx, Clause *c) {
   internal->stats.weakened_cube++;
   internal->stats.weakened_lengths += c->size;
 
-  WitnessStack &ss = shared_stacks[ss_idx];
+  WitnessStack &ss = cube_stacks[ss_idx];
 
-  LOG (ss.begin (), static_cast<unsigned> (ss.end () - ss.begin ()), "pushing clause to shared stack: ");
+  LOG (c, "Pushing to cube stack: ");
   // We use a similar encoding as for regular clause entries.
   // We do not need to push a time stamp for every clause since it is shared.
   // Also we will not attempt to embedd the witness cube in the clause for now.
@@ -363,19 +363,18 @@ void External::push_cube_clause (uint32_t ss_idx, Clause *c) {
 
   ss[first_size_field] = static_cast<int> (updated_size);
   ss.push_back (static_cast<int> (updated_size), arena);
-  LOG (ss.begin (), static_cast<unsigned> (ss.end () - ss.begin ()), "shared stack now: ");
 }
 
 void External::create_cube_stack_and_push_clause (
     const vector<int> &iwit_cube, Clause *c) {
-  LOG ("Creating a shared stack for a single clause with witness cube.");
+  LOG (c, "Creating a cube stack for a single clause with witness cube.");
 
-  const uint32_t ss_idx = shared_stacks.allocate ();
+  const uint32_t ss_idx = cube_stacks.allocate ();
   assert (ss_idx <= UINT32_MAX);
 
   internal->stats.ws_created++;
 
-  WitnessStack &ss = shared_stacks[ss_idx];
+  WitnessStack &ss = cube_stacks[ss_idx];
   assert (!ss.stack);
   // size cap | cube literals | 0 | es | idl | clause literals | es
   const unsigned initial_size = 2 + iwit_cube.size () + 3 + c->size + 1;
@@ -402,12 +401,12 @@ void External::create_cube_stack_and_push_clause (
 void External::create_cube_stack_and_push_external_clause (
     const vector<int> &clause, 
     const vector<int> &ewit_cube, int64_t id) {
-  const uint32_t ss_idx = shared_stacks.allocate ();
+  const uint32_t ss_idx = cube_stacks.allocate ();
   assert (ss_idx <= UINT32_MAX);
   
   internal->stats.ws_created++;
 
-  WitnessStack &ss = shared_stacks[ss_idx];
+  WitnessStack &ss = cube_stacks[ss_idx];
   assert (!ss.stack);
   // size cap | cube literals | 0 | es | idl | clause literals | es
   const unsigned initial_size = 2 + ewit_cube.size () + 3 + clause.size () + 1;
@@ -479,7 +478,7 @@ void External::create_cube_stack_and_push_external_clause (
   witness_order.push_back (static_cast<int> (ss_idx));
 }
 
-void External::push_external_clause_on_extension_stack (
+void External::push_external_clause_on_witness_stack (
     const vector<int> &c,
     const vector<int> &w, int64_t id) {  
   assert (id);
@@ -582,11 +581,11 @@ void External::push_external_clause_on_extension_stack (
 /*------------------------------------------------------------------------*/
 // the calls to init are used in the copy test, should never trigger during
 // actual solver runtime.
-void External::push_external_clause_and_witness_on_extension_stack (
+void External::push_external_clause_and_witness_on_extension (
   const vector<int> &c, const vector<int> &w, int64_t id) {
   assert (id);
   if (w.size () == 1)
-    push_external_clause_on_extension_stack (c, w, id);
+    push_external_clause_on_witness_stack (c, w, id);
   else
     create_cube_stack_and_push_external_clause (c, w, id);
 }
@@ -604,9 +603,8 @@ void External::push_external_clause_and_witness_on_extension_stack (
 // super-blocked or set-blocked clauses.
 
 void External::extend_cube_stack (uint32_t ss_idx, ExtendStats &stats) {
-  LOG ("Extending shared stack with witness cube");
-  WitnessStack &ss = shared_stacks[ss_idx];
-  LOG (ss.begin (), static_cast<unsigned> (ss.end () - ss.begin ()), "shared stack: ");
+  LOG ("Extending cube stack with witness cube");
+  WitnessStack &ss = cube_stacks[ss_idx];
 #ifndef QUIET
   stats.extension_size += ss.size ();
 #endif
@@ -835,7 +833,7 @@ void External::extend () {
 /* -------------------------------------------------------------------------- */
 /* ---------------------------- Traversal Functions --------------------------*/
 bool External::traverse_cube_stack_backward (WitnessIterator &it, uint32_t ss_idx) {
-  WitnessStack &ss = shared_stacks[ss_idx];
+  WitnessStack &ss = cube_stacks[ss_idx];
 
   vector<int> witness;
   auto q = ss.begin ();
@@ -889,7 +887,7 @@ bool External::traverse_cube_stack_backward (WitnessIterator &it, uint32_t ss_id
 
 bool External::traverse_cube_stack_forward (WitnessIterator &it, uint32_t ss_idx) {
   
-  WitnessStack &ss = shared_stacks[ss_idx];
+  WitnessStack &ss = cube_stacks[ss_idx];
 
   vector<int> witness;
   auto q = ss.begin ();
