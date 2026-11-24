@@ -66,6 +66,7 @@ static inline int64_t decode_id (vector<int>::const_iterator p,
                                  const bool id_long) {
   if (!id_long)
     return static_cast<uint32_t> (*(p + 1));
+  
   const uint64_t upper = static_cast<uint32_t> (*(p + 1));
   const uint64_t lower = static_cast<uint32_t> (*(p + 2));
   return static_cast<int64_t> ((upper << 32) | lower);
@@ -121,32 +122,35 @@ void External::restore_clause (vector<int>::const_iterator begin,
   internal->stats.restored_clauses++;
 }
 
-bool External::restore_cube_stack (uint32_t idx,
-                                   vector<bool> &skipped_witness,
-                                   RestoreStats &clauses) {
+bool External::restore_cube_stack (uint32_t idx, uint64_t widx, RestoreStats &clauses) {
   auto q = clause_data.begin () + idx;
+  auto cube_begin = q;
   bool restore_clauses = false;
 
   while (*q) {
     const int ewit = *q++;
-    if (marked (tainted, -ewit))
+    if (marked (tainted, -ewit)) {
       restore_clauses = true;
+      break;
+    }
   }
-  while (*q) {
-    q++;
-  }
-  q++; // Skip cube terminator
+  
   if (!restore_clauses && !internal->opts.restoreall) {
     LOG ("untainted and not forced to restore all clauses.");
-    // now also mark witnesses as skipped.
-    q = clause_data.begin () + idx;
-    while (*q) {
-      const int ewit = *q++;
-      if (!marked (skipped_witness, ewit))
-        mark (skipped_witness, ewit);
-    }
     return false;
   }
+
+  // Second sweep: update witness bits.
+  q = cube_begin;
+  while (*q) {
+    const int ewit = *q++;
+    LOG ("restore_cube_stack ewit %d", ewit);
+    //assert (marked (witness, ewit)); // incorrect assertion now. The first occurrence may already have unmarked
+    const unsigned uwit = elit2ulit (ewit);
+    if (witness_occs[uwit].first == widx)
+      witness[uwit] = false;
+  }
+  q++; // Skip cube terminator
 
   while (*q != 0) {
     clauses.total++;
@@ -169,76 +173,106 @@ bool External::restore_cube_stack (uint32_t idx,
   return true;
 }
 
-void External::defragment_clause_data () {
-  LOG ("defragmenting clause data of %zu elements", clause_data.size ());
+void External::defragment_extension_data () {
+  LOG ("defragmenting extension data: %zu clause-data elements, %zu witness entries",
+   clause_data.size (), witness_data.size ());
 
-  size_t write = 0;
+  size_t witness_write = 0;
+  size_t clause_write = 0;
 
-  for (auto p = witness_data.begin (); p != witness_data.end (); ++p) {
-    WitnessEntry &entry = *p;
+  vector<bool> first_set;
+
+  for (size_t read = 0; read < witness_data.size (); ++read) {
+    WitnessEntry entry = witness_data[read];
+    
     const int ewit = entry.ewit;
+    const int blit = entry.blit;
+
+    // Discard stale entries
+    if (!ewit && blit) {
+      continue;
+    }
+
     const uint64_t idx = entry.idx;
 
-    if (!ewit) {
-      assert (!entry.blit); // ewit
+    if (!ewit && !blit) {
       auto begin = clause_data.begin () + idx;
       auto end = begin;
-      // Skip the witness cube and its terminating zero.
-      while (*end)
-        ++end;
-      ++end;
+      // Rebuild first occurrences for witnesses in the cube.
+      while (*end) {
+        const int cube_ewit = *end++;
+        if (!marked (first_set, cube_ewit)) {
+          LOG ("updating first of ewit %d to %zu",
+               cube_ewit, witness_write);
+          set_first_occ (cube_ewit, witness_write);
+          mark (first_set, cube_ewit);
+        }
+      }
+      ++end; // Skip witness cube terminator
 
-      // Skip all clause records until the final terminating zero.
       while (*end) {
         bool wit_embedded, id_long;
         unsigned other_lits_size;
         decode_size_field (*end, wit_embedded, id_long, other_lits_size);
         assert (!wit_embedded);
-
         end += 1 + other_lits_size + (id_long ? 2 : 1);
       }
-      ++end; // Include the final terminating zero.
+      ++end; // Include final terminating zero.
       const size_t stack_size = end - begin;
-
       assert (idx + stack_size <= clause_data.size ());
 
-      // Update the cube stack index.
-      entry.idx = write;
+      entry.idx = clause_write;
+      if (clause_write != idx)
+        std::memmove (clause_data.data () + clause_write,
+                      clause_data.data () + idx,
+                      stack_size * sizeof (int));
 
-      // Move the complete shared stack.
-      if (write != idx) {
-        std::memmove (clause_data.data () + write,
-                      clause_data.data () + idx, stack_size * sizeof (int));
-      }
-      write += stack_size;
+      clause_write += stack_size;
+      witness_data[witness_write++] = entry;
       continue;
     }
 
     bool wit_embedded, id_long;
     unsigned other_lits_size;
-    decode_size_field (clause_data[idx], wit_embedded, id_long,
-                       other_lits_size);
+
+    decode_size_field (clause_data[idx], wit_embedded, id_long, other_lits_size);
+    assert (wit_embedded);
 
     const size_t record_size = 1 + other_lits_size + (id_long ? 2 : 1);
-
     assert (idx + record_size <= clause_data.size ());
 
-    // Update the index in the witness entry
-    entry.idx = write;
-
-    // Move the record to its compacted position.
-    if (write != idx) {
-      std::memmove (clause_data.data () + write, clause_data.data () + idx,
+    // Move the clause record.
+    if (clause_write != idx) {
+      std::memmove (clause_data.data () + clause_write,
+                    clause_data.data () + idx,
                     record_size * sizeof (int));
     }
-    write += record_size;
+
+    entry.idx = clause_write;
+    clause_write += record_size;
+
+    // Rebuild first/last occurrences.
+    //set_last_occ (ewit, witness_write);
+
+    if (!marked (first_set, ewit)) {
+      LOG ("updating first of ewit %d to %zu", ewit, witness_write);
+      set_first_occ (ewit, witness_write);
+      mark (first_set, ewit);
+    }
+
+    // Move the witness entry.
+    witness_data[witness_write++] = entry;
   }
 
-  clause_data.resize (write);
+  witness_data.resize (witness_write);
+  clause_data.resize (clause_write);
+  shrink_vector (witness_data);
   shrink_vector (clause_data);
+
   fragmented_clause_data = 0;
 
-  LOG ("defragmented clause data to %zu elements", clause_data.size ());
+  LOG ("defragmented extension data to %zu clause-data elements and %zu witness entries",
+       clause_data.size (), witness_data.size ());
 }
 
 void External::restore () {
@@ -267,23 +301,51 @@ void External::restore () {
   }
 #endif
 
+  size_t read = 0;
+  if (!internal->opts.restoreall) {
+    uint64_t smallest_idx = UINT64_MAX;
+    
+    for (size_t uwit = 0; uwit < tainted.size (); ++uwit) {
+      if (!tainted[uwit])
+        continue;
+       
+      const uint64_t idx = witness_occs[uwit ^ 1u].first;
+      LOG ("tainted ulit %zu, opposite %zu, witness bit %d, "
+           "first %llu, witness_data size %zu",
+           uwit, uwit ^ 1u,
+           (int) witness[uwit ^ 1u],
+           witness_occs[uwit ^ 1u].first,
+           witness_data.size ());
+      assert (witness[uwit ^ 1u]);
+      assert (idx < witness_data.size ());
+
+      if (idx < smallest_idx)
+        smallest_idx = idx;
+    } 
+
+    if (smallest_idx != UINT64_MAX) {
+      assert (smallest_idx < witness_data.size ());
+      LOG ("starting restore at witness_data[%llu]", smallest_idx);
+      read += smallest_idx;
+    }
+  }
+  
+  // TODO: can be removed.
   vector<bool> skipped_witness; // For recomputing the witness bits.
 
-  auto read = witness_data.begin ();
-  auto write = witness_data.begin ();
-  auto end = witness_data.end ();
-
-  while (read != end) {
-    const WitnessEntry &entry = *read++;
+  while (read < witness_data.size ()) {
+    WitnessEntry &entry = witness_data[read++];
     const int ewit = entry.ewit;
     const int blit = entry.blit;
     const uint64_t idx = entry.idx;
 
-    if (!ewit) {
-      assert (!blit);
-      if (!restore_cube_stack (idx, skipped_witness, clauses)) {
-        *write++ = entry;
-      }
+    // NEW: ewit = 0, blit != 0 means stale entry
+    if (!ewit && blit)
+      continue;
+
+    if (!ewit && !blit) {
+      if (restore_cube_stack (idx, read - 1, clauses))
+        entry.blit = 1; // just some non-zero value to mark as stale
       continue;
     }
 
@@ -291,16 +353,15 @@ void External::restore () {
 
     // restore the corresponding clause
     if (internal->opts.restoreall || marked (tainted, -ewit)) {
-
+      auto p = clause_data.begin () + idx;
       bool wit_embedded, id_long;
       unsigned other_lits_size;
 
-      // Now restore the next clause
-      auto p = clause_data.begin () + idx;
       decode_size_field (*p, wit_embedded, id_long, other_lits_size);
       assert (wit_embedded); // should always hold here.
 
-      int64_t id = decode_id (p, id_long);
+      const int64_t id = decode_id (p, id_long);
+
       LOG ("id computed: %" PRId64 "(%s)", id, id_long ? "long" : "short");
 
       auto begin = p + (id_long ? 3 : 2);
@@ -308,29 +369,34 @@ void External::restore () {
 
       clauses.restored++;
       restore_clause (begin, end_of_lits, id, ewit, blit);
+      entry.ewit = 0; // set ewit to 0 to mark a stale entry.
+      entry.blit = 1;
       fragmented_clause_data += 1 + other_lits_size + (id_long ? 2 : 1);
+
+      // update witness
+      const unsigned uwit = elit2ulit (ewit);
+      // we will restore all clauses with this witness, hence we can unmark.
+      if (read - 1 == witness_occs[uwit].first)
+        unmark (witness, ewit);
 
       continue;
     }
 
-    mark (skipped_witness, ewit);
-    *write++ = entry;
+    //mark (skipped_witness, ewit);
   }
 
-  witness_data.resize (write - witness_data.begin ());
-  shrink_vector (witness_data);
-
-  witness = std::move (skipped_witness);
+  //witness = std::move (skipped_witness);
 
   if (internal->opts.restoreall) {
-    assert (witness_data.empty ());
+    //assert (witness_data.empty ()); // Does not hold anymore
+    witness_data.clear ();
     clause_data.clear ();
     shrink_vector (clause_data);
     fragmented_clause_data = 0;
   } else if (100 * fragmented_clause_data >
              internal->opts.restoredefraglim * clause_data.size ()) {
     internal->stats.restore_defrags++;
-    defragment_clause_data ();
+    defragment_extension_data ();
   }
 
 #ifndef QUIET

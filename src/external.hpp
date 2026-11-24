@@ -102,7 +102,13 @@ public:
     int blit;
     uint64_t idx;
   };
-
+  /* ------------------------------------------------------------------------ */
+  struct FirstLast {
+    uint64_t first;
+  };
+  vector<FirstLast> witness_occs;
+  void set_first_occ (int ewit, uint64_t idx);
+  /* ------------------------------------------------------------------------ */
   vector<WitnessEntry> witness_data;
 
   vector<bool> witness; // Non-emptyness flag for witness stacks
@@ -278,14 +284,13 @@ public:
     int64_t total, satisfied, restored;
   };
 
-  void defragment_clause_data ();
+  void defragment_extension_data ();
 
   void restore_clause (vector<int>::const_iterator begin,
                        vector<int>::const_iterator end, const int64_t id,
                        const int ewit, const int blit);
 
-  bool restore_cube_stack (uint32_t ss_idx, vector<bool> &skipped_witnesses,
-                           RestoreStats &clauses);
+  bool restore_cube_stack (uint32_t idx, uint64_t widx, RestoreStats &clauses);
 
   void restore ();
 
