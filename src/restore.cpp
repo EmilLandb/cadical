@@ -83,7 +83,7 @@ void External::restore_clause (const vector<int>::const_iterator &begin,
 
 void External::restore_clauses () {
 
-  assert (internal->opts.restoreall == 2 || !tainted.empty ());
+  assert (internal->opts.restoreall || !tainted.empty ());
 
   PROFILE_SCOPE (restore);
   internal->stats.restorations++;
