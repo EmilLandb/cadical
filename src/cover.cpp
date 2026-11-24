@@ -383,9 +383,6 @@ bool Internal::cover_clause (Clause *c, Coveror &coveror) {
       LOG (c, "covered tautological");
       assert (clause.empty ());
       LOG (coveror.extend, "extension = ");
-      std::vector<int> weakened_clause;
-      int witness = 0;
-      int64_t weakened_id = 0;
       for (const auto &other : coveror.extend) {
         if (!prev) {
           // are we finishing a clause?
@@ -399,7 +396,7 @@ bool Internal::cover_clause (Clause *c, Coveror &coveror) {
                 --j;
                 LOG ("adding lit %d not needed for ATA", lit);
                 clause.push_back (lit);
-                weakened_clause.push_back (lit);
+                external->push_clause_literal_on_extension_stack (lit);
               }
             }
           }
@@ -412,19 +409,16 @@ bool Internal::cover_clause (Clause *c, Coveror &coveror) {
             lrat_chain.clear ();
           }
           last_id = ++clause_id;
-          if (already_pushed)
-            external->push_clause_on_extension (weakened_id, witness,
-                                                weakened_clause);
-          assert (other);
-          witness = other;
-          weakened_clause.clear ();
-          weakened_id = last_id;
-
+          external->push_zero_on_extension_stack ();
+          external->push_witness_literal_on_extension_stack (other);
+          external->push_zero_on_extension_stack ();
+          external->push_id_on_extension_stack (last_id);
+          external->push_zero_on_extension_stack ();
           clause.clear ();
           already_pushed = true;
         }
         if (other) {
-          weakened_clause.push_back (other);
+          external->push_clause_literal_on_extension_stack (other);
           clause.push_back (other);
           LOG (clause, "current clause is");
         }
@@ -441,7 +435,7 @@ bool Internal::cover_clause (Clause *c, Coveror &coveror) {
             --j;
             LOG ("adding lit %d not needed for ATA", lit);
             clause.push_back (lit);
-            weakened_clause.push_back (lit);
+            external->push_clause_literal_on_extension_stack (lit);
           }
         }
         if (lrat)
@@ -451,8 +445,6 @@ bool Internal::cover_clause (Clause *c, Coveror &coveror) {
         lrat_chain.clear ();
       }
       clause.clear ();
-      external->push_clause_on_extension (weakened_id, witness,
-                                          weakened_clause);
 
       mark_garbage (c);
     }
