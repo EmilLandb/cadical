@@ -97,12 +97,30 @@ public:
   size_t fragmented_clause_data = 0;
   vector<int> clause_data;
 
-  struct WitnessEntry {
+ struct WitnessEntry {
     int ewit;
     int blit;
     uint64_t idx;
+    uint64_t next = UINT64_MAX;
   };
-
+  /* ------------------------------------------------------------------------ */
+  struct FirstLast {
+    uint64_t first;
+    uint64_t last;
+  };
+  vector<FirstLast> witness_occs;
+  vector<int> tainted_lits;
+  bool in_restore = false;
+  void set_first_occ (int ewit, uint64_t idx);
+  void set_last_occ (int ewit, uint64_t idx);
+  void connect_to_last (int ewit, uint64_t this_idx);
+  void restore_clause_heap (vector<int>::const_iterator begin,
+                               vector<int>::const_iterator end,
+                               const int64_t id, const int ewit,
+                               const int blit, const uint64_t this_idx,
+            priority_queue<uint64_t, vector<uint64_t>, greater<uint64_t>> &heap);
+  void restore_with_heap ();
+  /* ------------------------------------------------------------------------ */
   vector<WitnessEntry> witness_data;
 
   vector<bool> witness; // Non-emptyness flag for witness stacks
@@ -278,13 +296,13 @@ public:
     int64_t total, satisfied, restored;
   };
 
-  void defragment_clause_data ();
+  void defragment_extension_data ();
 
   void restore_clause (vector<int>::const_iterator begin,
                        vector<int>::const_iterator end, const int64_t id,
                        const int ewit, const int blit);
 
-  bool restore_cube_stack (uint32_t ss_idx, vector<bool> &skipped_witnesses,
+  bool restore_cube_stack (uint32_t ss_idx, uint64_t widx,
                            RestoreStats &clauses);
 
   void restore ();
