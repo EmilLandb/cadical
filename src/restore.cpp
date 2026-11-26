@@ -124,14 +124,15 @@ void External::restore_clause (vector<int>::const_iterator begin,
 
 bool External::restore_cube_stack (uint32_t idx, uint64_t widx, RestoreStats &clauses) {
   auto q = clause_data.begin () + idx;
-  auto cube_begin = q;
   bool restore_clauses = false;
 
   while (*q) {
     const int ewit = *q++;
+    const int uwit = elit2ulit (ewit);
     if (marked (tainted, -ewit)) {
       restore_clauses = true;
-      break;
+      if (witness_occs[uwit].first == widx)
+        witness[uwit] = false;
     }
   }
   
@@ -140,16 +141,6 @@ bool External::restore_cube_stack (uint32_t idx, uint64_t widx, RestoreStats &cl
     return false;
   }
 
-  // Second sweep: update witness bits.
-  q = cube_begin;
-  while (*q) {
-    const int ewit = *q++;
-    LOG ("restore_cube_stack ewit %d", ewit);
-    //assert (marked (witness, ewit)); // incorrect assertion now. The first occurrence may already have unmarked
-    const unsigned uwit = elit2ulit (ewit);
-    if (witness_occs[uwit].first == widx)
-      witness[uwit] = false;
-  }
   q++; // Skip cube terminator
 
   while (*q != 0) {
@@ -300,38 +291,32 @@ void External::restore () {
            percent (numtainted, 2u * max_var));
   }
 #endif
-
+  in_restore = true;
   size_t read = 0;
   if (!internal->opts.restoreall) {
-    uint64_t smallest_idx = UINT64_MAX;
     
-    for (size_t uwit = 0; uwit < tainted.size (); ++uwit) {
-      if (!tainted[uwit])
-        continue;
-       
-      const uint64_t idx = witness_occs[uwit ^ 1u].first;
-      LOG ("tainted ulit %zu, opposite %zu, witness bit %d, "
-           "first %llu, witness_data size %zu",
-           uwit, uwit ^ 1u,
-           (int) witness[uwit ^ 1u],
-           witness_occs[uwit ^ 1u].first,
-           witness_data.size ());
-      assert (witness[uwit ^ 1u]);
-      assert (idx < witness_data.size ());
+    uint64_t smallest_idx = UINT64_MAX;
 
-      if (idx < smallest_idx)
-        smallest_idx = idx;
-    } 
-
+    for (const int elit : tainted_lits) {
+      const unsigned uwit = elit2ulit (-elit);
+      const uint64_t first = witness_occs[uwit].first;
+      assert (marked (witness, -elit));
+      assert (first != UINT64_MAX);
+      if (first < smallest_idx)
+        smallest_idx = first;
+    }
+ 
     if (smallest_idx != UINT64_MAX) {
       assert (smallest_idx < witness_data.size ());
       LOG ("starting restore at witness_data[%llu]", smallest_idx);
       read += smallest_idx;
     }
   }
-  
+  tainted_lits.clear ();
+  tainted_lits.shrink_to_fit ();
+
   // TODO: can be removed.
-  vector<bool> skipped_witness; // For recomputing the witness bits.
+  //vector<bool> skipped_witness; // For recomputing the witness bits.
 
   while (read < witness_data.size ()) {
     WitnessEntry &entry = witness_data[read++];
@@ -422,6 +407,7 @@ void External::restore () {
 
   tainted.clear ();
   tainted.shrink_to_fit ();
+  in_restore = false;
 }
 
 } // namespace CaDiCaL

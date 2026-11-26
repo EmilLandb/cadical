@@ -107,6 +107,8 @@ public:
     uint64_t first;
   };
   vector<FirstLast> witness_occs;
+  vector<int> tainted_lits;
+  bool in_restore = false;
   void set_first_occ (int ewit, uint64_t idx);
   /* ------------------------------------------------------------------------ */
   vector<WitnessEntry> witness_data;
